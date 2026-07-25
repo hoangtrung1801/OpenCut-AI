@@ -26,8 +26,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY . .
 
 RUN mkdir -p generated/voices
-ENV COQUI_TOS_AGREED=1
-
 EXPOSE 8422
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8422"]

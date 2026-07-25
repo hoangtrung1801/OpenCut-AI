@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra-index-url https://pypi.nvidia.com ; \
     fi
 
-COPY app.py compute_backends.py ./
+COPY app.py compute_backends.py openai_provider.py ./
 
 RUN mkdir -p /app/models
 ENV HF_HOME=/app/models

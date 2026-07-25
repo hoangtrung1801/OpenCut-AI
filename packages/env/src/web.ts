@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+const optionalUrl = z.preprocess(
+	(value) =>
+		typeof value === "string" &&
+		(value.trim() === "" || value === "your_modal_url_here")
+			? undefined
+			: value,
+	z.url().optional(),
+);
+
 const webEnvSchema = z.object({
 	// Node
 	NODE_ENV: z.enum(["development", "production", "test"]),
@@ -32,7 +41,7 @@ const webEnvSchema = z.object({
 	R2_ACCESS_KEY_ID: z.string().default(""),
 	R2_SECRET_ACCESS_KEY: z.string().default(""),
 	R2_BUCKET_NAME: z.string().default("opencut-transcription"),
-	MODAL_TRANSCRIPTION_URL: z.url().optional(),
+	MODAL_TRANSCRIPTION_URL: optionalUrl,
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

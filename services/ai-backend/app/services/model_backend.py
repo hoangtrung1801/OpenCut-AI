@@ -31,13 +31,15 @@ class LLMBackend:
     TurboQuant is used as an addon when:
     1. settings.AI_LLM_BACKEND is "turboquant" or "auto"
     2. The TurboQuant service is reachable
-    3. A model is loaded on the TurboQuant service
+    3. A local model is loaded, or the OpenAI provider is configured on the
+       TurboQuant service
 
     When TurboQuant is unavailable, all requests fall back to Ollama.
     """
 
     def __init__(self) -> None:
         self._tq_available: bool | None = None  # cached check, reset periodically
+        self._tq_provider: str | None = None
         self._tq_check_count = 0
 
     # ── Public properties ─────────────────────────────────────────────
@@ -62,7 +64,7 @@ class LLMBackend:
     # ── Backend selection ─────────────────────────────────────────────
 
     async def _is_turboquant_ready(self) -> bool:
-        """Check if TurboQuant service is reachable and has a model loaded."""
+        """Check whether TurboQuant has a usable inference provider."""
         # Re-check every 10 calls to avoid hammering the service
         self._tq_check_count += 1
         if self._tq_available is not None and self._tq_check_count % 10 != 0:
@@ -73,12 +75,18 @@ class LLMBackend:
                 resp = await client.get(f"{self.turboquant_url}/health")
                 if resp.status_code == 200:
                     data = resp.json()
-                    self._tq_available = data.get("active_model_loaded", False)
+                    if data.get("provider") == "openai":
+                        self._tq_provider = "openai"
+                        self._tq_available = bool(data.get("openai_configured"))
+                    else:
+                        self._tq_provider = "local"
+                        self._tq_available = bool(data.get("active_model_loaded"))
                     return self._tq_available
         except (httpx.ConnectError, httpx.TimeoutException):
             pass
 
         self._tq_available = False
+        self._tq_provider = None
         return False
 
     async def _should_use_turboquant(self) -> bool:
@@ -94,6 +102,7 @@ class LLMBackend:
     def reset_cache(self) -> None:
         """Force re-check of TurboQuant availability on next request."""
         self._tq_available = None
+        self._tq_provider = None
 
     # ── Ollama methods ────────────────────────────────────────────────
 
@@ -233,6 +242,16 @@ class LLMBackend:
         system: str | None = None,
     ) -> AsyncIterator[str]:
         """Stream tokens from TurboQuant's OpenAI-compatible endpoint."""
+        if self._tq_provider == "openai":
+            try:
+                response = await self._tq_generate(prompt, model, system)
+                if response:
+                    yield response
+                return
+            except Exception:
+                logger.warning("TurboQuant OpenAI stream request failed, falling back to Ollama")
+                self._tq_available = False
+
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -384,15 +403,21 @@ class LLMBackend:
         except Exception:
             pass
 
+        tq_provider = "local"
+        tq_provider_model = None
+        tq_openai_configured = False
         tq_model = None
-        if tq_ready:
-            try:
-                async with httpx.AsyncClient(timeout=2) as client:
-                    resp = await client.get(f"{self.turboquant_url}/health")
-                    if resp.status_code == 200:
-                        tq_model = resp.json().get("active_model")
-            except Exception:
-                pass
+        try:
+            async with httpx.AsyncClient(timeout=2) as client:
+                resp = await client.get(f"{self.turboquant_url}/health")
+                if resp.status_code == 200:
+                    tq_health = resp.json()
+                    tq_provider = tq_health.get("provider", "local")
+                    tq_provider_model = tq_health.get("provider_model")
+                    tq_openai_configured = bool(tq_health.get("openai_configured"))
+                    tq_model = tq_provider_model or tq_health.get("active_model")
+        except Exception:
+            pass
 
         active_backend = "turboquant" if tq_ready and self.backend_mode != "ollama" else "ollama"
 
@@ -409,6 +434,9 @@ class LLMBackend:
                 "available": tq_ready,
                 "url": self.turboquant_url,
                 "active_model": tq_model,
+                "provider": tq_provider,
+                "provider_model": tq_provider_model or tq_model,
+                "openai_configured": tq_openai_configured,
                 "kv_cache_bits": settings.KV_CACHE_BITS,
             },
         }

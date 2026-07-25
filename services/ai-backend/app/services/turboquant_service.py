@@ -59,7 +59,13 @@ class TurboQuantService:
                     data = resp.json()
                     return {
                         "available": True,
+                        "provider": data.get("provider", "local"),
+                        "provider_model": data.get("provider_model") or data.get("active_model"),
+                        "openai_configured": data.get("openai_configured", False),
                         "model": data.get("model"),
+                        "active_model": data.get("active_model"),
+                        "active_model_loaded": data.get("active_model_loaded", False),
+                        "backend": data.get("backend"),
                         "kv_cache_bits": data.get("kv_cache_bits"),
                         "max_context_length": data.get("max_context_length"),
                         "gpu_available": data.get("gpu_available", False),
@@ -170,6 +176,12 @@ class TurboQuantService:
         )
 
         return {
+            "inference_provider": (
+                service_status.get("provider") if service_status else None
+            ),
+            "inference_provider_model": (
+                service_status.get("provider_model") if service_status else None
+            ),
             # `kv_cache_bits` is kept for backwards compatibility with the UI —
             # it's what the user picked. The effective value is a new field.
             "kv_cache_bits": requested_bits,

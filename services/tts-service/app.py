@@ -1,6 +1,6 @@
 """TTS (Text-to-Speech) microservice.
 
-Standalone FastAPI service for voice generation with multiple model support.
+Standalone FastAPI service for voice generation with OmniVoice.
 Runs on port 8422.
 """
 
@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration via environment variables
 # ---------------------------------------------------------------------------
-TTS_MODEL = os.getenv("TTS_MODEL", "xtts_v2")
+TTS_MODEL = os.getenv("TTS_MODEL", "omnivoice")
+OMNIVOICE_MODEL = os.getenv("OMNIVOICE_MODEL", "k2-fsa/OmniVoice")
 GENERATED_DIR = os.getenv("GENERATED_DIR", "generated")
 VOICES_DIR = os.path.join(GENERATED_DIR, "voices")
 
@@ -31,69 +32,14 @@ os.makedirs(VOICES_DIR, exist_ok=True)
 
 AVAILABLE_TTS_MODELS = [
     {
-        "name": "xtts_v2",
-        "full_name": "tts_models/multilingual/multi-dataset/xtts_v2",
-        "description": "Best quality — multilingual, voice cloning",
-        "size": "~1.8 GB",
-        "size_mb": 1800,
+        "name": "omnivoice",
+        "full_name": OMNIVOICE_MODEL,
+        "description": "600+ languages with voice cloning and voice design",
+        "size": "~2.5 GB",
+        "size_mb": 2500,
         "multilingual": True,
         "voice_cloning": True,
-        "languages": 16,
-        "device": "cpu",
-    },
-    {
-        "name": "your_tts",
-        "full_name": "tts_models/multilingual/multi-dataset/your_tts",
-        "description": "Multilingual, voice cloning, lighter",
-        "size": "~290 MB",
-        "size_mb": 290,
-        "multilingual": True,
-        "voice_cloning": True,
-        "languages": 16,
-        "device": "cpu",
-    },
-    {
-        "name": "kitten_tts",
-        "full_name": "tts_models/en/ljspeech/fast_pitch",
-        "description": "Fast, expressive — small footprint",
-        "size": "~500 MB",
-        "size_mb": 500,
-        "multilingual": False,
-        "voice_cloning": False,
-        "languages": 1,
-        "device": "cpu",
-    },
-    {
-        "name": "vits-en",
-        "full_name": "tts_models/en/ljspeech/vits",
-        "description": "English only — fast and lightweight",
-        "size": "~110 MB",
-        "size_mb": 110,
-        "multilingual": False,
-        "voice_cloning": False,
-        "languages": 1,
-        "device": "cpu",
-    },
-    {
-        "name": "vits-en-multi",
-        "full_name": "tts_models/en/vctk/vits",
-        "description": "English multi-speaker",
-        "size": "~140 MB",
-        "size_mb": 140,
-        "multilingual": False,
-        "voice_cloning": False,
-        "languages": 1,
-        "device": "cpu",
-    },
-    {
-        "name": "tacotron2-en",
-        "full_name": "tts_models/en/ljspeech/tacotron2-DDC",
-        "description": "English — classic, reliable",
-        "size": "~130 MB",
-        "size_mb": 130,
-        "multilingual": False,
-        "voice_cloning": False,
-        "languages": 1,
+        "languages": 600,
         "device": "cpu",
     },
 ]
@@ -148,14 +94,9 @@ class TTSService:
         if self._model is None:
             return "cpu"
         try:
-            import torch
             if hasattr(self._model, "device"):
                 return str(self._model.device)
-            if torch.cuda.is_available():
-                # Check if model parameters are on GPU
-                for p in getattr(self._model, "parameters", lambda: [])():
-                    return "cuda" if p.is_cuda else "cpu"
-        except (ImportError, Exception):
+        except Exception:
             pass
         return "cpu"
 
@@ -168,38 +109,41 @@ class TTSService:
             return {"status": "already_loaded", "model": self._model_name}
 
         try:
-            from TTS.api import TTS as CoquiTTS
+            from omnivoice import OmniVoice
         except ImportError:
-            msg = "coqui-tts is not installed. Install with: pip install coqui-tts"
+            msg = "omnivoice is not installed. Install with: pip install omnivoice"
             logger.warning(msg)
-            return {"status": "not_installed", "error": msg, "install_command": "pip install coqui-tts"}
+            return {"status": "not_installed", "error": msg, "install_command": "pip install omnivoice"}
 
         # Unload current model if switching
         if self._model is not None:
             self.unload_model()
 
-        # Resolve full model name
-        model_info = _MODEL_MAP.get(target)
-        if model_info:
-            full_name = model_info["full_name"]
-        else:
-            # If not in curated list, try as a full Coqui model path
-            full_name = target if "/" in target else f"tts_models/multilingual/multi-dataset/{target}"
+        full_name = _MODEL_MAP.get(target, {}).get("full_name", target)
+        if target == "omnivoice":
+            full_name = OMNIVOICE_MODEL
 
         try:
             logger.info("Loading TTS model '%s' (%s)...", target, full_name)
-            self._model = CoquiTTS(full_name)
-            self._model_name = target
+            import torch
 
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    self._model = self._model.to("cuda")
-                    logger.info("TTS model loaded on GPU.")
-                else:
-                    logger.info("TTS model loaded on CPU.")
-            except ImportError:
-                logger.info("TTS model loaded on CPU.")
+            if torch.cuda.is_available():
+                device_map = "cuda:0"
+                dtype = torch.float16
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device_map = "mps"
+                dtype = torch.float16
+            else:
+                device_map = "cpu"
+                dtype = torch.float32
+
+            self._model = OmniVoice.from_pretrained(
+                full_name,
+                device_map=device_map,
+                dtype=dtype,
+            )
+            self._model_name = target
+            logger.info("OmniVoice model loaded on %s.", device_map)
 
             return {"status": "loaded", "model": target}
         except Exception as e:
@@ -217,69 +161,61 @@ class TTSService:
     @property
     def is_installed(self) -> bool:
         try:
-            import TTS  # noqa: F401
+            import omnivoice  # noqa: F401
             return True
         except ImportError:
             return False
 
-    def _ensure_speaker_ref(self, speaker: str = "default") -> str:
-        """Create a speaker reference WAV with distinct pitch characteristics."""
-        import struct
-        import math
-
-        safe_name = speaker.lower().replace(" ", "_")
-        ref_path = os.path.join(VOICES_DIR, f"_ref_{safe_name}.wav")
-        if os.path.exists(ref_path):
-            return ref_path
-
-        sample_rate = 22050
-        duration_s = 2
-        num_samples = sample_rate * duration_s
-
-        # Different base frequencies create different voice characteristics
-        # when XTTS uses these as speaker references
-        freq_map = {
-            "male": 120.0,     # Lower pitch
-            "female": 220.0,   # Higher pitch
-            "default": 160.0,  # Mid pitch
+    def _build_generation_kwargs(
+        self,
+        text: str,
+        language: str,
+        speaker_wav: str | None,
+        speaker: str | None,
+        speed: float,
+    ) -> dict:
+        """Map the existing API request fields to OmniVoice generation modes."""
+        kwargs = {
+            "text": text,
+            "language": "zh" if language == "zh-cn" else language,
+            "speed": speed,
         }
-        base_freq = freq_map.get(safe_name, 160.0)
+        if speaker_wav:
+            kwargs["ref_audio"] = speaker_wav
+        elif speaker:
+            kwargs["instruct"] = speaker
+        return kwargs
 
-        with open(ref_path, "wb") as f:
-            data_size = num_samples * 2
-            f.write(b"RIFF")
-            f.write(struct.pack("<I", 36 + data_size))
-            f.write(b"WAVE")
-            f.write(b"fmt ")
-            f.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16))
-            f.write(b"data")
-            f.write(struct.pack("<I", data_size))
-            for i in range(num_samples):
-                t = i / sample_rate
-                # Generate a subtle tone so XTTS has audio characteristics to work with
-                sample = int(100 * math.sin(2 * math.pi * base_freq * t))
-                f.write(struct.pack("<h", max(-32768, min(32767, sample))))
+    def _write_audio(self, audio, output_path: str) -> None:
+        """Write an OmniVoice waveform using the loaded model's sample rate."""
+        import soundfile as sf
 
-        logger.info("Created speaker reference '%s' at %s", speaker, ref_path)
-        return ref_path
+        sf.write(output_path, audio, self._model.sampling_rate)
 
     def _generate_sync(
         self,
         text: str,
         language: str,
-        speaker_wav: str,
+        speaker_wav: str | None,
+        speaker: str | None,
+        speed: float,
         output_path: str,
     ) -> None:
-        """Synchronous TTS generation — runs in a thread pool."""
+        """Synchronous OmniVoice generation — runs in a thread pool."""
         import gc
 
         try:
-            self._model.tts_to_file(
+            generation_kwargs = self._build_generation_kwargs(
                 text=text,
                 language=language,
                 speaker_wav=speaker_wav,
-                file_path=output_path,
+                speaker=speaker,
+                speed=speed,
             )
+            audio = self._model.generate(**generation_kwargs)
+            if not audio:
+                raise RuntimeError("OmniVoice returned no audio")
+            self._write_audio(audio[0], output_path)
         except (MemoryError, RuntimeError) as exc:
             # Free memory and re-raise with a clear message
             gc.collect()
@@ -302,17 +238,12 @@ class TTSService:
         language: str = "en",
         speaker_wav: str | None = None,
         speaker: str | None = None,
+        speed: float = 1.0,
     ) -> str:
         if not self.is_loaded:
             result = self.load_model()
             if result["status"] not in ("loaded", "already_loaded"):
                 raise NotImplementedError(result.get("error", "TTS model not available"))
-
-        # XTTS v2 is multi-speaker and requires a speaker reference
-        model_info = _MODEL_MAP.get(self._model_name, {})
-        needs_speaker_ref = model_info.get("voice_cloning", True)
-        if needs_speaker_ref and not speaker_wav:
-            speaker_wav = self._ensure_speaker_ref(speaker or "default")
 
         import uuid
         import asyncio
@@ -325,7 +256,9 @@ class TTSService:
             self._generate_sync,
             text,
             language,
-            speaker_wav if needs_speaker_ref else None,
+            speaker_wav,
+            speaker,
+            speed,
             output_path,
         )
         return output_path
@@ -348,9 +281,9 @@ async def _startup_load_model():
     if not AUTOLOAD:
         return
     if not tts_service.is_installed:
-        logger.warning("coqui-tts not installed — skipping autoload")
+        logger.warning("omnivoice not installed — skipping autoload")
         return
-    logger.info("Auto-loading TTS model on startup...")
+    logger.info("Auto-loading OmniVoice model on startup...")
     result = tts_service.load_model()
     logger.info("TTS autoload result: %s", result.get("status"))
 
@@ -387,7 +320,7 @@ async def health():
             "installed": installed,
             "device": tts_service.device if tts_service.is_loaded else None,
         },
-        "install_command": "pip install coqui-tts" if not installed else None,
+        "install_command": "pip install omnivoice" if not installed else None,
         "supported_languages": SUPPORTED_LANGUAGES,
     }
 
@@ -444,6 +377,7 @@ async def generate_speech(request: TTSGenerateRequest):
             language=request.language,
             speaker_wav=request.speaker_wav,
             speaker=request.speaker,
+            speed=request.speed,
         )
         from fastapi.responses import FileResponse
         return FileResponse(
@@ -508,7 +442,7 @@ async def load_model(model_name: str | None = None):
     if result["status"] == "not_installed":
         raise HTTPException(
             status_code=501,
-            detail=result.get("error", "TTS library not installed"),
+            detail=result.get("error", "OmniVoice library not installed"),
         )
     if result["status"] == "error":
         raise HTTPException(

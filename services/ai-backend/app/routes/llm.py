@@ -36,6 +36,9 @@ class LLMStatusResponse(BaseModel):
     active_backend: str = "ollama"
     turboquant_available: bool = False
     turboquant_model: str | None = None
+    provider: str = "ollama"
+    provider_model: str | None = None
+    openai_configured: bool = False
     models: list[dict] = []
 
 
@@ -45,17 +48,44 @@ async def llm_status() -> dict:
     status = await llm_backend.get_status()
     ollama = status["ollama"]
     tq = status["turboquant"]
+    provider = tq.get("provider", "local") if status["active_backend"] == "turboquant" else "ollama"
+    provider_model = (
+        tq.get("provider_model")
+        if status["active_backend"] == "turboquant"
+        else ollama.get("default_model")
+    )
+    models = ollama["models"]
+    if provider == "openai" and provider_model:
+        models = [{"name": provider_model, "provider": "openai"}]
 
     return {
         "available": ollama["available"] or tq["available"],
         "url": ollama["url"],
-        "default_model": ollama_service.default_model,
+        "turboquant_url": tq["url"],
+        "default_model": provider_model or ollama_service.default_model,
         "active_backend": status["active_backend"],
         "turboquant_available": tq["available"],
         "turboquant_model": tq["active_model"],
+        "provider": provider,
+        "provider_model": provider_model,
+        "openai_configured": tq.get("openai_configured", False),
         "kv_cache_bits": tq["kv_cache_bits"],
-        "models": ollama["models"],
+        "models": models,
     }
+
+
+async def _reject_openai_model_management() -> None:
+    """Prevent Ollama model operations when TurboQuant owns LLM inference."""
+    status = await llm_backend.get_status()
+    tq = status["turboquant"]
+    if status["active_backend"] == "turboquant" and tq.get("provider") == "openai":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "TurboQuant is using OpenAI. Set OPENAI_MODEL and restart the "
+                "TurboQuant service instead of managing an Ollama model."
+            ),
+        )
 
 
 @router.post("/chat")
@@ -141,6 +171,7 @@ async def set_model(request: SetModelRequest) -> dict:
     The model must already be pulled. All subsequent LLM requests
     (chat, commands, analysis) will use this model.
     """
+    await _reject_openai_model_management()
     available = await ollama_service.check_available()
     if not available:
         raise HTTPException(status_code=503, detail="Ollama is not available.")
@@ -183,6 +214,7 @@ async def pull_model(request: PullModelRequest) -> StreamingResponse:
     Each line: {"status": "...", "completed": N, "total": N, "progress": 0-100}
     Final line on success: {"status": "success", "model": "..."}
     """
+    await _reject_openai_model_management()
     available = await ollama_service.check_available()
     if not available:
         raise HTTPException(

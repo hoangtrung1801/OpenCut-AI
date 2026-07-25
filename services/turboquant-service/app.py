@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -36,6 +37,11 @@ from pydantic import BaseModel, Field
 from compute_backends import (
     BaseTurboBackend,
     create_turbo_backend,
+)
+from openai_provider import (
+    OpenAIProvider,
+    OpenAIProviderConfigurationError,
+    OpenAIProviderError,
 )
 
 try:
@@ -49,11 +55,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Load local development settings before reading any environment-backed
+# configuration below. Explicit process environment variables still win.
+load_dotenv()
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-3B-Instruct")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "local").strip().lower()
+if AI_PROVIDER not in {"local", "openai"}:
+    raise RuntimeError("AI_PROVIDER must be either 'local' or 'openai'")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 KV_CACHE_BITS = int(os.getenv("KV_CACHE_BITS", "4"))
 MAX_CONTEXT_LENGTH = int(os.getenv("MAX_CONTEXT_LENGTH", "8192"))
 DEVICE = os.getenv("DEVICE", "auto")
@@ -712,6 +726,7 @@ def _memory_info() -> dict:
 # ---------------------------------------------------------------------------
 
 manager = ModelManager()
+openai_provider = OpenAIProvider(default_model=OPENAI_MODEL)
 
 
 # ---------------------------------------------------------------------------
@@ -733,18 +748,25 @@ async def lifespan(app: FastAPI):
             "TRUST_REMOTE_CODE is ENABLED. Model repos can execute arbitrary "
             "Python on load. Only use this with models you fully trust."
         )
-    # Auto-load default model if it's already downloaded
-    if DEFAULT_MODEL in manager.downloaded_models:
-        try:
-            manager.load_model(DEFAULT_MODEL)
-        except Exception:
-            logger.exception("Failed to auto-load default model '%s'", DEFAULT_MODEL)
-    else:
+    if AI_PROVIDER == "openai":
         logger.info(
-            "Default model '%s' not downloaded yet. "
-            "Use POST /v1/models/download to download it.",
-            DEFAULT_MODEL,
+            "OpenAI provider enabled (model=%s, api_key_configured=%s)",
+            OPENAI_MODEL,
+            openai_provider.configured,
         )
+    else:
+        # Auto-load default model if it's already downloaded
+        if DEFAULT_MODEL in manager.downloaded_models:
+            try:
+                manager.load_model(DEFAULT_MODEL)
+            except Exception:
+                logger.exception("Failed to auto-load default model '%s'", DEFAULT_MODEL)
+        else:
+            logger.info(
+                "Default model '%s' not downloaded yet. "
+                "Use POST /v1/models/download to download it.",
+                DEFAULT_MODEL,
+            )
     yield
     manager.unload()
     logger.info("TurboQuant Service shut down")
@@ -825,6 +847,12 @@ async def health() -> dict:
     compute_mode = _detect_device()
     return {
         "status": "ok",
+        "provider": AI_PROVIDER,
+        "provider_model": (
+            OPENAI_MODEL if AI_PROVIDER == "openai"
+            else active.model_id if active else None
+        ),
+        "openai_configured": openai_provider.configured if AI_PROVIDER == "openai" else False,
         "active_model": active.model_id if active else None,
         "active_model_loaded": active is not None,
         "active_model_quantization": active.quantization if active else None,
@@ -861,6 +889,16 @@ async def health() -> dict:
 @app.get("/v1/models")
 async def list_models() -> dict:
     """List all models: catalog + downloaded + active status."""
+    if AI_PROVIDER == "openai":
+        return {
+            "object": "list",
+            "data": [{
+                "id": OPENAI_MODEL,
+                "object": "model",
+                "owned_by": "openai",
+            }],
+            "active_model": OPENAI_MODEL,
+        }
     catalog = manager.get_catalog()
     return {
         "object": "list",
@@ -1023,18 +1061,56 @@ def _get_active_or_load(requested_model: str | None) -> LoadedModel:
     return manager.active_model
 
 
+def _openai_http_exception(error: OpenAIProviderError) -> HTTPException:
+    if isinstance(error, OpenAIProviderConfigurationError):
+        return HTTPException(status_code=503, detail=str(error))
+    return HTTPException(status_code=502, detail=str(error))
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest) -> dict:
     """OpenAI-compatible chat completions. Supports model switching per request."""
     if request.stream:
         raise HTTPException(status_code=400, detail="Streaming not yet supported")
 
+    messages = [{"role": m.role, "content": m.content} for m in request.messages]
+    if AI_PROVIDER == "openai":
+        try:
+            result = await asyncio.to_thread(
+                openai_provider.generate_chat,
+                messages=messages,
+                model=request.model,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_p=request.top_p,
+            )
+        except OpenAIProviderError as error:
+            logger.warning("OpenAI chat completion failed", exc_info=True)
+            raise _openai_http_exception(error) from error
+
+        return {
+            "id": f"chatcmpl-openai-{int(time.time())}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": result["model"],
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": result["response_text"]},
+                "finish_reason": "stop",
+            }],
+            "usage": {
+                "prompt_tokens": result["prompt_tokens"],
+                "completion_tokens": result["completion_tokens"],
+                "total_tokens": result["total_tokens"],
+            },
+            "provider": "openai",
+        }
+
     loaded = _get_active_or_load(request.model)
     if loaded.backend is None:
         raise HTTPException(status_code=503, detail="No compute backend attached")
 
     try:
-        messages = [{"role": m.role, "content": m.content} for m in request.messages]
         prompt_text = loaded.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True,
         )
@@ -1088,6 +1164,37 @@ async def chat_completions(request: ChatCompletionRequest) -> dict:
 @app.post("/v1/completions")
 async def completions(request: CompletionRequest) -> dict:
     """OpenAI-compatible text completions."""
+    if AI_PROVIDER == "openai":
+        try:
+            result = await asyncio.to_thread(
+                openai_provider.generate_completion,
+                prompt=request.prompt,
+                model=request.model,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+            )
+        except OpenAIProviderError as error:
+            logger.warning("OpenAI completion failed", exc_info=True)
+            raise _openai_http_exception(error) from error
+
+        return {
+            "id": f"cmpl-openai-{int(time.time())}",
+            "object": "text_completion",
+            "created": int(time.time()),
+            "model": result["model"],
+            "choices": [{
+                "index": 0,
+                "text": result["response_text"],
+                "finish_reason": "stop",
+            }],
+            "usage": {
+                "prompt_tokens": result["prompt_tokens"],
+                "completion_tokens": result["completion_tokens"],
+                "total_tokens": result["total_tokens"],
+            },
+            "provider": "openai",
+        }
+
     loaded = _get_active_or_load(request.model)
     if loaded.backend is None:
         raise HTTPException(status_code=503, detail="No compute backend attached")
