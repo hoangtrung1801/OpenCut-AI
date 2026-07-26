@@ -18,31 +18,7 @@ import { cn } from "@/utils/ui";
 import { toast } from "sonner";
 import { VoiceLibraryPicker } from "@/components/editor/ai/voice-library-picker";
 import type { ClonedVoice } from "@/stores/voice-library-store";
-
-const DUBBING_LANGUAGES = [
-	{ code: "hi", name: "Hindi" },
-	{ code: "bn", name: "Bengali" },
-	{ code: "ta", name: "Tamil" },
-	{ code: "te", name: "Telugu" },
-	{ code: "mr", name: "Marathi" },
-	{ code: "gu", name: "Gujarati" },
-	{ code: "kn", name: "Kannada" },
-	{ code: "ml", name: "Malayalam" },
-	{ code: "pa", name: "Punjabi" },
-	{ code: "od", name: "Odia" },
-	{ code: "en", name: "English" },
-	{ code: "es", name: "Spanish" },
-	{ code: "fr", name: "French" },
-	{ code: "de", name: "German" },
-	{ code: "pt", name: "Portuguese" },
-	{ code: "ja", name: "Japanese" },
-	{ code: "ko", name: "Korean" },
-	{ code: "zh", name: "Chinese" },
-	{ code: "vi", name: "Vietnamese" },
-	{ code: "ar", name: "Arabic" },
-	{ code: "ru", name: "Russian" },
-	{ code: "it", name: "Italian" },
-];
+import { OMNIVOICE_LANGUAGES } from "@/constants/omnivoice-constants";
 
 const ENGINES: Array<{
 	value: DubbingEngine;
@@ -113,7 +89,7 @@ export function AIDubbingPanel() {
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						{DUBBING_LANGUAGES.map((lang) => (
+						{OMNIVOICE_LANGUAGES.map((lang) => (
 							<SelectItem key={lang.code} value={lang.code}>
 								{lang.name}
 							</SelectItem>
