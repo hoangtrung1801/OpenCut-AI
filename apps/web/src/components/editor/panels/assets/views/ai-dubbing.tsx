@@ -16,6 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/utils/ui";
 import { toast } from "sonner";
+import { VoiceLibraryPicker } from "@/components/editor/ai/voice-library-picker";
+import type { ClonedVoice } from "@/stores/voice-library-store";
 
 const DUBBING_LANGUAGES = [
 	{ code: "hi", name: "Hindi" },
@@ -63,6 +65,7 @@ export function AIDubbingPanel() {
 	const [targetLanguage, setTargetLanguage] = useState("hi");
 	const [engine, setEngine] = useState<DubbingEngine>("local");
 	const [voiceDesign, setVoiceDesign] = useState("");
+	const [clonedVoice, setClonedVoice] = useState<ClonedVoice | null>(null);
 
 	const handleDub = useCallback(() => {
 		if (segments.length === 0) {
@@ -77,8 +80,9 @@ export function AIDubbingPanel() {
 			targetLanguage,
 			engine,
 			voiceDesign,
+			voiceClonePath: clonedVoice?.path,
 		});
-	}, [segments, language, targetLanguage, engine, voiceDesign, runDubbing]);
+	}, [segments, language, targetLanguage, engine, voiceDesign, clonedVoice, runDubbing]);
 
 	return (
 		<div className="flex flex-col gap-4 p-3">
@@ -175,12 +179,16 @@ export function AIDubbingPanel() {
 					onChange={(event) => setVoiceDesign(event.target.value)}
 					placeholder="female, young adult, high pitch, british accent"
 					className="text-[10px]"
+					disabled={!!clonedVoice}
 				/>
 				<p className="text-[9px] text-muted-foreground leading-relaxed">
-					Leave blank for Auto voice. You can describe gender, age, pitch, whisper
-					style, accents, or Chinese dialects such as 四川话.
+					{clonedVoice
+						? "Voice design is overridden by the cloned voice below."
+						: "Leave blank for Auto voice. You can describe gender, age, pitch, whisper style, accents, or Chinese dialects such as 四川话."}
 				</p>
 			</div>
+
+			<VoiceLibraryPicker selectedVoice={clonedVoice} onSelect={setClonedVoice} />
 
 			{progress && (
 				<div className="flex flex-col gap-1 rounded-md border border-primary/20 bg-primary/5 p-2">
