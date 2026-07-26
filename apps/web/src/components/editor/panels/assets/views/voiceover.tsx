@@ -20,6 +20,8 @@ import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { cn } from "@/utils/ui";
 import { toast } from "sonner";
 import { insertGeneratedAudioElement } from "@/lib/media/generated-audio";
+import { VoiceLibraryPicker } from "@/components/editor/ai/voice-library-picker";
+import type { ClonedVoice } from "@/stores/voice-library-store";
 import {
 	SARVAM_TTS_LANGUAGES,
 	SARVAM_LANGUAGE_MAP,
@@ -97,10 +99,7 @@ export function VoiceoverView() {
 	// Local engine state
 	const [selectedModel, setSelectedModel] = useState("xtts_v2");
 	const [voiceGender, setVoiceGender] = useState<"male" | "female">("male");
-	const [clonedVoicePath, setClonedVoicePath] = useState<string | null>(null);
-	const [clonedVoiceName, setClonedVoiceName] = useState<string | null>(null);
-	const [isUploading, setIsUploading] = useState(false);
-	const fileInputRef = useRef<HTMLInputElement>(null);
+	const [clonedVoice, setClonedVoice] = useState<ClonedVoice | null>(null);
 
 	// Sarvam engine state
 	const [sarvamSpeaker, setSarvamSpeaker] = useState(SARVAM_DEFAULT_SPEAKER);
@@ -126,13 +125,13 @@ export function VoiceoverView() {
 		else setLanguage("en");
 	};
 
-	// Auto-select cloning model when voice is uploaded
+	// Auto-select cloning model when a voice is selected
 	useEffect(() => {
-		if (clonedVoicePath) {
+		if (clonedVoice) {
 			const cloningModel = TTS_MODELS.find((m) => m.supportsCloning && m.installed);
 			if (cloningModel) setSelectedModel(cloningModel.id);
 		}
-	}, [clonedVoicePath]);
+	}, [clonedVoice]);
 
 	// Text to generate from
 	const textToGenerate = useMemo(() => {
@@ -182,10 +181,10 @@ export function VoiceoverView() {
 		return aiClient.generateSpeechBlob({
 			text,
 			language,
-			speakerWav: clonedVoicePath ?? undefined,
-			speaker: clonedVoicePath ? undefined : voiceGender,
+			speakerWav: clonedVoice?.path,
+			speaker: clonedVoice ? undefined : voiceGender,
 		});
-	}, [engine, language, sarvamSpeaker, smallestVoice, smallestSpeed, clonedVoicePath, voiceGender]);
+	}, [engine, language, sarvamSpeaker, smallestVoice, smallestSpeed, clonedVoice, voiceGender]);
 
 	// Generate full voiceover
 	const handleGenerate = useCallback(async () => {
@@ -324,22 +323,6 @@ export function VoiceoverView() {
 			});
 		}
 	}, [editor, generatedBlob]);
-
-	// Upload voice sample for cloning (local engine only)
-	const handleUploadVoice = useCallback(async (file: File) => {
-		setIsUploading(true);
-		setError(null);
-		try {
-			const result = await aiClient.cloneVoice(file, file.name.replace(/\.[^.]+$/, ""));
-			setClonedVoicePath(result.path);
-			setClonedVoiceName(result.name);
-			toast.success(`Voice "${result.name}" ready for cloning`);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Voice cloning failed");
-		} finally {
-			setIsUploading(false);
-		}
-	}, []);
 
 	// Can generate?
 	const canGenerate = engine === "sarvam" || engine === "smallest" || currentModel.installed;
@@ -604,7 +587,7 @@ export function VoiceoverView() {
 									Female
 								</button>
 							</div>
-							{clonedVoiceName && (
+							{clonedVoice && (
 								<p className="text-[9px] text-muted-foreground">
 									Voice type is overridden by the cloned voice below.
 								</p>
@@ -612,55 +595,7 @@ export function VoiceoverView() {
 						</div>
 
 						{/* Local: Voice cloning */}
-						<div className="flex flex-col gap-2">
-							<Label className="text-xs">Voice clone (optional)</Label>
-							{clonedVoiceName ? (
-								<div className="flex items-center justify-between rounded-md bg-green-500/10 border border-green-500/20 px-2.5 py-2">
-									<div className="flex items-center gap-2">
-										<span className="size-1.5 rounded-full bg-green-500" />
-										<span className="text-[11px] font-medium">Cloned: {clonedVoiceName}</span>
-									</div>
-									<button
-										type="button"
-										className="text-[10px] text-destructive hover:text-destructive/80"
-										onClick={() => { setClonedVoicePath(null); setClonedVoiceName(null); }}
-									>
-										Remove
-									</button>
-								</div>
-							) : (
-								<div className="flex flex-col gap-1.5">
-									<div className="flex gap-1.5">
-										<Button
-											variant="outline"
-											size="sm"
-											className="flex-1 text-[10px] h-7"
-											disabled={isUploading}
-											onClick={() => fileInputRef.current?.click()}
-										>
-											{isUploading ? <><Spinner className="size-3 mr-1" />Uploading...</> : "Upload voice sample"}
-										</Button>
-										<Badge variant="secondary" className="text-[9px] px-1.5 py-0 self-center">
-											or use default
-										</Badge>
-									</div>
-									<p className="text-[9px] text-muted-foreground">
-										Upload 10-30s audio to clone a specific voice.
-									</p>
-									<input
-										ref={fileInputRef}
-										type="file"
-										accept=".wav,.mp3,.flac,.ogg,.m4a"
-										className="hidden"
-										onChange={(e) => {
-											const file = e.target.files?.[0];
-											if (file) handleUploadVoice(file);
-											e.target.value = "";
-										}}
-									/>
-								</div>
-							)}
-						</div>
+						<VoiceLibraryPicker selectedVoice={clonedVoice} onSelect={setClonedVoice} />
 
 						{/* Local: Model */}
 						<div className="flex flex-col gap-1.5">
