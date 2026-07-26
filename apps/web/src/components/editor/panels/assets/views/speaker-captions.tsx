@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useEditor } from "@/hooks/use-editor";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { buildSpeakerCaptionSegments, getSpeakerColor } from "@/lib/transcription/speaker-captions";
+import { buildCaptionChunks } from "@/lib/transcription/caption";
 import { toast } from "sonner";
 
 export function SpeakerCaptionsPanel({ className }: { className?: string }) {
@@ -48,41 +49,50 @@ export function SpeakerCaptionsPanel({ className }: { className?: string }) {
 			return;
 		}
 
-		for (const seg of captionSegments) {
-			const element = {
-				type: "text" as const,
-				content: `[${seg.speakerLabel}]\n${seg.text}`,
-				name: `${seg.speakerLabel} — ${seg.text.slice(0, 20)}...`,
-				startTime: seg.start,
-				duration: seg.end - seg.start,
-				trimStart: 0,
-				trimEnd: 0,
-				fontSize: 24,
-				fontFamily: "Inter",
-				color: seg.speakerColor,
-				highlightColor: "#FFFFFF",
-				background: {
-					enabled: true,
-					color: "#000000",
-					cornerRadius: 4,
-					paddingX: 8,
-					paddingY: 4,
-				},
-				textAlign: "center" as const,
-				fontWeight: "bold" as const,
-				fontStyle: "normal" as const,
-				textDecoration: "none" as const,
-				transform: { scale: 1, position: { x: 0, y: 0 }, rotate: 0 },
-				opacity: 1,
-			};
+		let chunkCount = 0;
 
-			editor.timeline.insertElement({
-				element,
-				placement: { mode: "auto" },
+		for (const seg of captionSegments) {
+			const chunks = buildCaptionChunks({
+				segments: [{ text: seg.text, start: seg.start, end: seg.end, words: seg.words }],
 			});
+
+			for (const chunk of chunks) {
+				const element = {
+					type: "text" as const,
+					content: `[${seg.speakerLabel}]\n${chunk.text}`,
+					name: `${seg.speakerLabel} — ${chunk.text.slice(0, 20)}...`,
+					startTime: chunk.startTime,
+					duration: chunk.duration,
+					trimStart: 0,
+					trimEnd: 0,
+					fontSize: 24,
+					fontFamily: "Inter",
+					color: seg.speakerColor,
+					highlightColor: "#FFFFFF",
+					background: {
+						enabled: true,
+						color: "#000000",
+						cornerRadius: 4,
+						paddingX: 8,
+						paddingY: 4,
+					},
+					textAlign: "center" as const,
+					fontWeight: "bold" as const,
+					fontStyle: "normal" as const,
+					textDecoration: "none" as const,
+					transform: { scale: 1, position: { x: 0, y: 0 }, rotate: 0 },
+					opacity: 1,
+				};
+
+				editor.timeline.insertElement({
+					element,
+					placement: { mode: "auto" },
+				});
+				chunkCount++;
+			}
 		}
 
-		toast.success(`Applied ${captionSegments.length} speaker-labeled captions`);
+		toast.success(`Applied ${chunkCount} speaker-labeled captions`);
 	}, [captionSegments, editor]);
 
 	if (segments.length === 0) {
