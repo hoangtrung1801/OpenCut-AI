@@ -45,6 +45,7 @@ export function VoiceoverView() {
 
 	const [voiceGender, setVoiceGender] = useState<"male" | "female">("male");
 	const [clonedVoice, setClonedVoice] = useState<ClonedVoice | null>(null);
+	const [speed, setSpeed] = useState(1.0);
 
 	// Text to generate from
 	const textToGenerate = useMemo(() => {
@@ -78,8 +79,9 @@ export function VoiceoverView() {
 			language,
 			speakerWav: clonedVoice?.path,
 			speaker: clonedVoice ? undefined : voiceGender,
+			speed,
 		});
-	}, [language, clonedVoice, voiceGender]);
+	}, [language, clonedVoice, voiceGender, speed]);
 
 	// Generate full voiceover
 	const handleGenerate = useCallback(async () => {
@@ -348,6 +350,25 @@ export function VoiceoverView() {
 
 				{/* Voice cloning */}
 				<VoiceLibraryPicker selectedVoice={clonedVoice} onSelect={setClonedVoice} />
+
+				{/* Speed */}
+				<div className="flex flex-col gap-2">
+					<Label className="text-xs">Speed ({speed.toFixed(1)}x)</Label>
+					<input
+						type="range"
+						min={0.5}
+						max={2.0}
+						step={0.1}
+						value={speed}
+						onChange={(e) => setSpeed(parseFloat(e.target.value))}
+						className="w-full accent-primary"
+					/>
+					<div className="flex justify-between text-[9px] text-muted-foreground">
+						<span>0.5x</span>
+						<span>1.0x</span>
+						<span>2.0x</span>
+					</div>
+				</div>
 
 				{/* ── Errors & progress ── */}
 				{error && (

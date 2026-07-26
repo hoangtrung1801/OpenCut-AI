@@ -80,6 +80,7 @@ export interface TTSRequest {
 	language: string;
 	speakerWav?: string;
 	speaker?: string;
+	speed?: number;
 }
 
 export interface TTSResult {
