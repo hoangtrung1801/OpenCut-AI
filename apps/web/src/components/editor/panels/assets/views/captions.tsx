@@ -609,8 +609,15 @@ export function Captions() {
 
 			// Place translated subtitles slightly above the original ones
 			const yOffset = activeSubtitleTracks.length > 0 ? 0.28 : 0.38;
+			const translatedChunks = buildCaptionChunks({
+				segments: translatedSegments,
+			});
 			const trackId = addSubtitleTrack({
-				subtitleSegments: translatedSegments,
+				subtitleSegments: translatedChunks.map((chunk) => ({
+					text: chunk.text,
+					start: chunk.startTime,
+					end: chunk.startTime + chunk.duration,
+				})),
 				languageLabel: `${targetLang.name}`,
 				yOffset,
 			});
