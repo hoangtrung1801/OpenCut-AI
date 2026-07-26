@@ -114,7 +114,7 @@ const roadmapItems: RoadmapItem[] = [
 	{
 		title: "Self-hosting & infrastructure",
 		description:
-			"Full Docker Compose setup with 9 services (web, AI backend, Whisper, TTS, image, Ollama, Postgres, Redis). Health monitoring via proxied endpoint. RAM/GPU status in header. API keys management in Settings. Self-hosting cost documentation.",
+			"Full Docker Compose setup with 8 services (web, AI backend, Whisper, TTS, image, Postgres, Redis, and supporting infrastructure). Health monitoring via proxied endpoint. RAM/GPU status in header. API keys management in Settings. Self-hosting cost documentation.",
 		status: {
 			text: "Completed",
 			type: "complete",

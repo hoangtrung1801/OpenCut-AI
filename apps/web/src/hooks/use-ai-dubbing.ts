@@ -9,14 +9,16 @@ import {
 	toSarvamCode,
 } from "@/constants/sarvam-constants";
 import { toast } from "sonner";
-import type { TranscriptionSegment } from "@/types/ai";
+import type { TTSRequest, TranscriptionSegment } from "@/types/ai";
+import { insertGeneratedAudioElement } from "@/lib/media/generated-audio";
 
 export type DubbingEngine = "sarvam" | "smallest" | "local";
 
 export interface DubbingOptions {
 	targetLanguage: string;
 	engine: DubbingEngine;
-	voiceId: string;
+	voiceId?: string;
+	voiceDesign?: string;
 	pace?: number;
 	segmentIndices?: number[];
 }
@@ -26,6 +28,17 @@ export interface DubbingProgress {
 	totalSegments: number;
 	currentText: string;
 	phase: "translating" | "generating" | "placing" | "done";
+}
+
+export function buildLocalTTSRequest(
+	text: string,
+	language: string,
+	voiceDesign?: string,
+): TTSRequest {
+	const request: TTSRequest = { text, language };
+	const speaker = voiceDesign?.trim();
+	if (speaker) request.speaker = speaker;
+	return request;
 }
 
 function getAudioDuration(url: string): Promise<number> {
@@ -63,6 +76,13 @@ export function useAIDubbing() {
 			}
 
 			setIsDubbing(true);
+			const activeProject = editor.project.getActive();
+			if (!activeProject) {
+				toast.error("No active project");
+				setIsDubbing(false);
+				return;
+			}
+
 			const taskId = `dubbing-${Date.now()}`;
 			addTask({
 				id: taskId,
@@ -131,22 +151,24 @@ export function useAIDubbing() {
 						audioBlob = await aiClient.sarvamTTS(
 							translatedText,
 							sarvamCode,
-							options.voiceId,
+							options.voiceId ?? "shubh",
 							options.pace ?? 1.0,
 						);
 					} else if (isSmallest) {
 						audioBlob = await aiClient.smallestTTS(
 							translatedText,
-							options.voiceId,
+							options.voiceId ?? "emily",
 							options.targetLanguage,
 							options.pace ?? 1.0,
 						);
 					} else {
-						audioBlob = await aiClient.generateSpeechBlob({
-							text: translatedText,
-							language: options.targetLanguage,
-							speaker: options.voiceId,
-						});
+						audioBlob = await aiClient.generateSpeechBlob(
+							buildLocalTTSRequest(
+								translatedText,
+								options.targetLanguage,
+								options.voiceDesign ?? options.voiceId,
+							),
+						);
 					}
 
 					setProgress({
@@ -163,21 +185,16 @@ export function useAIDubbing() {
 					});
 					const audioUrl = URL.createObjectURL(file);
 					const duration = await getAudioDuration(audioUrl);
+					URL.revokeObjectURL(audioUrl);
 
-					editor.timeline.insertElement({
-						placement: { mode: "explicit", trackId: trackId! },
-						element: {
-							type: "audio",
-							sourceType: "library",
-							sourceUrl: audioUrl,
-							name: `Dub [${options.targetLanguage}]: ${seg.text.slice(0, 20)}...`,
-							startTime: seg.start,
-							duration: duration || seg.end - seg.start,
-							trimStart: 0,
-							trimEnd: 0,
-							sourceDuration: duration || seg.end - seg.start,
-							volume: 1,
-						},
+					await insertGeneratedAudioElement({
+						editor,
+						projectId: activeProject.metadata.id,
+						trackId: trackId!,
+						file,
+						name: `Dub [${options.targetLanguage}]: ${seg.text.slice(0, 20)}...`,
+						startTime: seg.start,
+						duration: duration || seg.end - seg.start,
 					});
 
 					completed++;

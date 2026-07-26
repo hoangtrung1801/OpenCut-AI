@@ -33,15 +33,9 @@ export const EXTERNAL_TOOLS: ExternalTool[] = [
 	},
 	{
 		name: "Docker",
-		description: "Container platform running all AI services locally. Whisper, TTS, Ollama, and more.",
+		description: "Container platform running the self-hosted AI services: Whisper, TTS, image generation, and more.",
 		url: "https://docker.com",
 		logo: "/logos/tools/docker.png",
-	},
-	{
-		name: "Ollama",
-		description: "Run LLMs locally. Powers AI commands, fact-checking, script editing, and translation.",
-		url: "https://ollama.com",
-		logo: "/logos/tools/ollama.png",
 	},
 	{
 		name: "Coqui TTS",

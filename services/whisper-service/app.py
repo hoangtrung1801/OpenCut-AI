@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration via environment variables
 # ---------------------------------------------------------------------------
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
@@ -85,11 +85,14 @@ _MODEL_MAP = {m["name"]: m for m in AVAILABLE_WHISPER_MODELS}
 # Pydantic models
 # ---------------------------------------------------------------------------
 
+
 class TranscriptionWord(BaseModel):
     word: str
     start: float = Field(..., description="Start time in seconds")
     end: float = Field(..., description="End time in seconds")
-    probability: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence score")
+    probability: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Confidence score"
+    )
 
 
 class TranscriptionSegment(BaseModel):
@@ -112,6 +115,7 @@ class TranscriptionResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Whisper service singleton
 # ---------------------------------------------------------------------------
+
 
 class WhisperService:
     """Singleton service wrapping faster-whisper for speech-to-text."""
@@ -147,7 +151,9 @@ class WhisperService:
             device = WHISPER_DEVICE if WHISPER_DEVICE != "auto" else "cpu"
             logger.info(
                 "Loading whisper model '%s' (device=%s, compute=%s)...",
-                target_size, device, WHISPER_COMPUTE_TYPE,
+                target_size,
+                device,
+                WHISPER_COMPUTE_TYPE,
             )
             self._model = WhisperModel(
                 target_size,
@@ -179,7 +185,9 @@ class WhisperService:
         if self._model is None:
             self.load_model()
 
-        logger.info("Transcribing '%s' (language=%s)...", audio_path, language or "auto")
+        logger.info(
+            "Transcribing '%s' (language=%s)...", audio_path, language or "auto"
+        )
 
         segments_iter, info = self._model.transcribe(
             audio_path,
@@ -230,7 +238,9 @@ class WhisperService:
 
         logger.info(
             "Transcription complete: %d segments, %.1fs duration, language=%s",
-            len(segments), info.duration, info.language,
+            len(segments),
+            info.duration,
+            info.language,
         )
         return result
 
@@ -281,10 +291,12 @@ async def list_models():
     active = whisper_service.model_size if whisper_service.is_loaded else None
     models = []
     for m in AVAILABLE_WHISPER_MODELS:
-        models.append({
-            **m,
-            "active": m["name"] == active,
-        })
+        models.append(
+            {
+                **m,
+                "active": m["name"] == active,
+            }
+        )
     return {"models": models, "active_model": active, "device": WHISPER_DEVICE}
 
 
@@ -292,10 +304,12 @@ async def list_models():
 async def test_model():
     """Quick test: verify the whisper model is loaded and responsive."""
     if not whisper_service.is_loaded:
-        raise HTTPException(status_code=400, detail="No model loaded. Load a model first.")
+        raise HTTPException(
+            status_code=400, detail="No model loaded. Load a model first."
+        )
 
-    import struct
     import asyncio
+    import struct
 
     test_path = os.path.join(UPLOAD_DIR, "_whisper_test.wav")
     try:
@@ -308,7 +322,9 @@ async def test_model():
             f.write(struct.pack("<I", 36 + data_size))
             f.write(b"WAVE")
             f.write(b"fmt ")
-            f.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16))
+            f.write(
+                struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16)
+            )
             f.write(b"data")
             f.write(struct.pack("<I", data_size))
             f.write(b"\x00" * data_size)
@@ -368,10 +384,18 @@ async def transcribe(
             logger.info("Extracting audio from video file '%s'", file.filename)
             subprocess.run(
                 [
-                    "ffmpeg", "-i", upload_path,
-                    "-vn", "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1",
-                    audio_path, "-y",
+                    "ffmpeg",
+                    "-i",
+                    upload_path,
+                    "-vn",
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    audio_path,
+                    "-y",
                 ],
                 check=True,
                 capture_output=True,

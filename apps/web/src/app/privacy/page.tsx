@@ -47,7 +47,7 @@ export default function PrivacyPage() {
 								No video, audio, or project data is uploaded to any cloud service
 							</li>
 							<li>
-								AI models (Whisper, TTS, Ollama, Stable Diffusion) run on your hardware
+								AI models (Whisper, TTS, and Stable Diffusion) run on your hardware
 							</li>
 							<li>Project data is stored in your browser using IndexedDB</li>
 							<li>No analytics, no telemetry, no tracking of any kind</li>
@@ -68,8 +68,8 @@ export default function PrivacyPage() {
 				</p>
 				<p>
 					Your video files, audio files, project data, and generated content
-					never leave your infrastructure. The AI models (Whisper, Coqui TTS,
-					Ollama, Stable Diffusion) run locally inside Docker containers on your hardware.
+					never leave your infrastructure. The self-hosted AI models (Whisper,
+					Coqui TTS, and Stable Diffusion) run locally inside Docker containers on your hardware.
 				</p>
 			</section>
 
@@ -84,7 +84,7 @@ export default function PrivacyPage() {
 						<strong>Voice generation:</strong> Coqui XTTS v2 runs in a local Docker container
 					</li>
 					<li>
-						<strong>LLM commands:</strong> Ollama runs models locally — no API calls to OpenAI or others
+						<strong>LLM commands:</strong> Requests go through the configured LLM chat endpoint
 					</li>
 					<li>
 						<strong>Image generation:</strong> Stable Diffusion runs on your GPU/CPU
@@ -148,7 +148,7 @@ export default function PrivacyPage() {
 						<strong>OpenAI / ElevenLabs:</strong> Optional cloud AI APIs (requires API keys in Settings)
 					</li>
 					<li>
-						<strong>Ollama model registry:</strong> Model downloads when pulling new LLM models
+						<strong>LLM chat endpoint:</strong> Optional AI-assisted editing and content generation
 					</li>
 				</ul>
 				<p>None of these are enabled by default. You choose what to connect.</p>

@@ -25,8 +25,6 @@ import {
 	Download04Icon,
 } from "@hugeicons/core-free-icons";
 import { toast } from "sonner";
-import { useAIStatus } from "@/hooks/use-ai-status";
-import { aiClient, type ServicesStatus, type ServiceInfo } from "@/lib/ai-client";
 import {
 	useServiceHealth,
 	SERVICE_URLS,
@@ -44,20 +42,7 @@ interface AISetupGuideProps {
 
 type ServiceState = "running" | "stopped" | "loaded" | "available" | "not_installed" | "loading" | "error";
 
-interface OllamaModel {
-	name: string;
-	size: number;
-	modified_at: string;
-}
-
 // ----- Helpers -----
-
-function formatBytes(bytes: number): string {
-	if (bytes === 0) return "0 B";
-	if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
-	if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(0)} MB`;
-	return `${(bytes / 1024).toFixed(0)} KB`;
-}
 
 function statusBadge(status: ServiceState): {
 	variant: "default" | "secondary" | "destructive" | "outline";
@@ -80,24 +65,6 @@ function statusBadge(status: ServiceState): {
 			return { variant: "destructive", label: "Error", dotColor: "bg-red-500" };
 	}
 }
-
-const SUGGESTED_MODELS = [
-	{ name: "llama3.2:1b", description: "Fastest, minimal resources", size: "~1.3 GB", device: "cpu" as const, turboquant: true },
-	{ name: "kimi-k2:latest", description: "MoonshotAI Kimi K2 — frontier reasoning, 3-bit (Lite tier)", size: "~1.4 GB", device: "cpu" as const, turboquant: true },
-	{ name: "llama3.2:3b", description: "Fast, lightweight — good for commands and analysis", size: "~2 GB", device: "cpu" as const, turboquant: true },
-	{ name: "kimi-k2:q4_K_M", description: "MoonshotAI Kimi K2 — long-context agentic tasks, 4-bit (Standard tier)", size: "~3 GB", device: "cpu" as const, turboquant: true },
-	{ name: "mistral:7b", description: "High quality, needs more RAM", size: "~4.1 GB", device: "cpu" as const, turboquant: true },
-	{ name: "llama3.1:8b", description: "Best quality Llama, needs 8+ GB", size: "~4.9 GB", device: "gpu" as const, turboquant: true },
-	{ name: "kimi-k2:q5_K_M", description: "MoonshotAI Kimi K2 — near-lossless 5-bit, best reasoning (Pro tier)", size: "~7 GB", device: "gpu" as const, turboquant: true },
-	{ name: "qwen2.5:3b", description: "Strong multilingual, TurboQuant validated", size: "~2 GB", device: "cpu" as const, turboquant: true },
-	{ name: "qwen2.5:7b", description: "Excellent quality, multilingual", size: "~4.7 GB", device: "gpu" as const, turboquant: true },
-	{ name: "phi3.5:3.8b", description: "Microsoft Phi — 128K context, compact", size: "~2.2 GB", device: "cpu" as const, turboquant: true },
-	{ name: "gemma2:2b", description: "Google Gemma 2 — efficient and fast", size: "~1.6 GB", device: "cpu" as const, turboquant: true },
-	{ name: "gemma4:e2b", description: "Google Gemma 4 — 5B any-to-any multimodal", size: "~7.2 GB", device: "cpu" as const, turboquant: true },
-	{ name: "gemma4:e4b", description: "Google Gemma 4 — 8B any-to-any multimodal", size: "~9.6 GB", device: "gpu" as const, turboquant: true },
-	{ name: "gemma4:26b", description: "Google Gemma 4 MoE — 26B params, 4B active", size: "~18 GB", device: "gpu" as const, turboquant: true },
-	{ name: "gemma4:31b", description: "Google Gemma 4 Dense — top quality 31B", size: "~20 GB", device: "gpu" as const, turboquant: true },
-];
 
 const SUGGESTED_TTS_MODELS = [
 	{ name: "xtts_v2", description: "Best quality — multilingual, voice cloning", size: "~1.8 GB", device: "cpu" as const, multilingual: true, voiceCloning: true },
@@ -129,12 +96,7 @@ const SUGGESTED_IMAGE_MODELS = [
 // ----- Component -----
 
 export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
-	const { isConnected, refresh } = useAIStatus();
 	const { services, isChecking, checkAll, loadModel, testModel } = useServiceHealth(isOpen);
-	const [isPullingModel, setIsPullingModel] = useState<string | null>(null);
-	const [activeModel, setActiveModel] = useState<string>("");
-	const [isSwitchingModel, setIsSwitchingModel] = useState(false);
-	const [pullError, setPullError] = useState<string | null>(null);
 	const [whisperError, setWhisperError] = useState<string | null>(null);
 	const [ttsError, setTtsError] = useState<string | null>(null);
 	const [diffusionError, setDiffusionError] = useState<string | null>(null);
@@ -156,9 +118,6 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 	useEffect(() => {
 		if (isOpen) {
 			checkAll();
-			aiClient.llmStatus().then((data) => {
-				if (data.default_model) setActiveModel(data.default_model);
-			}).catch(() => {});
 			// Fetch active TTS model + device
 			fetch(`${SERVICE_URLS.tts}/models`, { signal: AbortSignal.timeout(5000) })
 				.then((r) => r.ok ? r.json() : null)
@@ -187,47 +146,8 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 		}
 	}, [isOpen, checkAll]);
 
-	const handleSwitchModel = useCallback(async (modelName: string) => {
-		setIsSwitchingModel(true);
-		try {
-			const result = await aiClient.setLLMModel(modelName);
-			setActiveModel(result.current_model);
-			toast.success(`Switched to ${modelName}`);
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Failed to switch model");
-		} finally {
-			setIsSwitchingModel(false);
-		}
-	}, []);
-
 	const handleRefresh = useCallback(async () => {
-		await refresh();
 		await checkAll();
-	}, [refresh, checkAll]);
-
-	const handlePullModel = useCallback(async (modelName: string) => {
-		setIsPullingModel(modelName);
-		setPullError(null);
-		setActionMessage(null);
-		try {
-			await aiClient.pullOllamaModel(modelName);
-			setActionMessage(`Model "${modelName}" pulled successfully. Switching to it...`);
-			await checkAll();
-			// Auto-switch to the newly pulled model
-			try {
-				const result = await aiClient.setLLMModel(modelName);
-				setActiveModel(result.current_model);
-				setActionMessage(`Model "${modelName}" pulled and activated.`);
-				toast.success(`Now using ${modelName}`);
-			} catch {
-				// Switch failed but download succeeded — that's fine
-				setActionMessage(`Model "${modelName}" pulled. Select it above to use it.`);
-			}
-		} catch (error) {
-			setPullError(error instanceof Error ? error.message : "Failed to pull model");
-		} finally {
-			setIsPullingModel(null);
-		}
 	}, [checkAll]);
 
 	const handleSwitchTTSModel = useCallback(async (modelName: string) => {
@@ -324,29 +244,23 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 	}, [testModel]);
 
 	const backend = services.backend;
-	const ollama = services.ollama;
 	const whisper = services.whisper;
 	const tts = services.tts;
 	const diffusion = services.image;
-	const ollamaModels = (ollama?.models ?? []) as OllamaModel[];
 
 	const isBackendRunning = backend.status === "running";
-	const isOllamaRunning = ollama.status === "running";
 	const isWhisperRunning = whisper.status === "running";
 	const isTTSRunning = tts.status === "running";
 	const isImageRunning = diffusion.status === "running";
-	const hasModels = ollamaModels.length > 0;
 
 	// Count how many services are ready
 	const readyCount = [
 		isBackendRunning,
-		isOllamaRunning,
-		hasModels,
 		isWhisperRunning,
 		isTTSRunning,
 		isImageRunning,
 	].filter(Boolean).length;
-	const totalServices = 5; // backend, ollama, whisper, tts, image
+	const totalServices = 4; // backend, whisper, tts, image
 
 	return (
 		<Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -429,201 +343,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 							)}
 						</ServiceCard>
 
-						{/* ── 2. Ollama LLM Service ── */}
-						<ServiceCard
-							title="Ollama (LLM)"
-							status={isOllamaRunning ? "running" : "stopped"}
-							detail={isOllamaRunning
-								? `${ollamaModels.length} ${ollamaModels.length === 1 ? "model" : "models"} installed`
-								: SERVICE_URLS.ollama
-							}
-						>
-							{!isOllamaRunning && (
-								<div className="mt-2">
-									<p className="text-[11px] text-muted-foreground leading-relaxed">
-										Ollama serves local LLMs for AI commands, chapter detection, and analysis. Start it:
-									</p>
-									<CommandBlock label="Via Docker" command={SERVICE_DOCKER_COMMANDS.ollama} />
-									<CommandBlock label="Or install locally" command="brew install ollama && ollama serve" />
-								</div>
-							)}
-
-							{isOllamaRunning && (
-								<div className="mt-2 flex flex-col gap-2">
-									{/* Installed models — with explicit Use / Active button */}
-									{ollamaModels.length > 0 && (
-										<div className="flex flex-col gap-1">
-											<span className="text-[11px] text-muted-foreground font-medium">Installed models</span>
-											{ollamaModels.map((model) => {
-												const isActive = model.name === activeModel;
-												// Determine CPU/GPU from size: models > 4GB typically need GPU
-												const modelSizeGB = model.size / 1_073_741_824;
-												const deviceTag = modelSizeGB > 4 ? "gpu" : "cpu";
-												return (
-													<div
-														key={model.name}
-														className={cn(
-															"flex items-center justify-between rounded px-2 py-1.5 text-[11px]",
-															isActive
-																? "bg-primary/10 border border-primary/30"
-																: "bg-muted/50",
-														)}
-													>
-														<div className="flex items-center gap-1.5">
-															<span className={cn("size-1.5 rounded-full", isActive ? "bg-primary" : "bg-green-500")} />
-															<span className="font-medium">{model.name}</span>
-															<Badge
-																variant="outline"
-																className={cn(
-																	"text-[8px] px-1 py-0",
-																	deviceTag === "cpu"
-																		? "text-green-400 border-green-500/30"
-																		: "text-purple-400 border-purple-500/30",
-																)}
-															>
-																{deviceTag === "cpu" ? "CPU" : "GPU"}
-															</Badge>
-														</div>
-														<div className="flex items-center gap-2">
-															<span className="text-muted-foreground tabular-nums">
-																{formatBytes(model.size)}
-															</span>
-															{isActive ? (
-																<Badge variant="default" className="text-[8px] px-1.5 py-0 h-4">
-																	Active
-																</Badge>
-															) : (
-																<Button
-																	size="sm"
-																	variant="outline"
-																	className="h-5 text-[9px] px-2"
-																	disabled={isSwitchingModel}
-																	onClick={() => handleSwitchModel(model.name)}
-																>
-																	{isSwitchingModel ? <Spinner className="size-2.5" /> : "Use this"}
-																</Button>
-															)}
-														</div>
-													</div>
-												);
-											})}
-										</div>
-									)}
-
-									{/* Pull a new model */}
-									{!hasModels && (
-										<div className="rounded bg-yellow-500/10 px-2.5 py-2 text-[11px] text-yellow-400">
-											No models installed yet. Pull one to enable AI commands.
-										</div>
-									)}
-
-									{ollamaModels.length === 1 && (
-										<div className="rounded bg-blue-500/10 px-2.5 py-2 text-[11px] text-blue-400 leading-relaxed">
-											To switch models, pull a different one below. It will download and automatically become the active model.
-										</div>
-									)}
-
-									<div className="flex flex-col gap-1">
-										<span className="text-[11px] text-muted-foreground font-medium">
-											{hasModels ? "Switch to a different model" : "Choose a model to install"}
-										</span>
-										{SUGGESTED_MODELS.map((model) => {
-											// Exact match: "llama3.2:1b" must match "llama3.2:1b", not "llama3.2:3b"
-											const isInstalled = ollamaModels.some(
-												(m) => m.name === model.name,
-											);
-											const isActive = model.name === activeModel;
-											const isPulling = isPullingModel === model.name;
-
-											return (
-												<div
-													key={model.name}
-													className={cn(
-														"flex items-center gap-2 rounded px-2.5 py-2 text-[11px]",
-														isActive
-															? "bg-primary/10 border border-primary/30"
-															: isInstalled
-																? "bg-green-500/5 border border-green-500/20"
-																: "bg-muted/30",
-													)}
-												>
-													<div className="flex-1 min-w-0">
-														<div className="flex items-center gap-1.5 flex-wrap">
-															<span className="font-medium font-mono">{model.name}</span>
-															<span className="text-muted-foreground">{model.size}</span>
-															<Badge
-																variant="outline"
-																className={cn(
-																	"text-[8px] px-1 py-0",
-																	model.device === "cpu"
-																		? "text-green-400 border-green-500/30"
-																		: "text-purple-400 border-purple-500/30",
-																)}
-															>
-																{model.device === "cpu" ? "CPU" : "GPU"}
-															</Badge>
-															{model.turboquant && (
-																<Badge
-																	variant="outline"
-																	className="text-[8px] px-1 py-0 text-cyan-400 border-cyan-500/30"
-																>
-																	TurboQuant
-																</Badge>
-															)}
-															{isActive && (
-																<Badge variant="default" className="text-[8px] px-1 py-0 h-3.5">
-																	Active
-																</Badge>
-															)}
-														</div>
-														<p className="text-muted-foreground mt-0.5">{model.description}</p>
-													</div>
-													<div className="shrink-0">
-														{isPulling ? (
-															<Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled>
-																<Spinner className="size-3 mr-1" />
-																Pulling...
-															</Button>
-														) : isActive ? (
-															<Badge variant="default" className="text-[9px] px-1.5 py-0.5">
-																In use
-															</Badge>
-														) : isInstalled ? (
-															<Button
-																size="sm"
-																variant="outline"
-																className="h-6 text-[10px] px-2"
-																disabled={isSwitchingModel || isPullingModel !== null}
-																onClick={() => handleSwitchModel(model.name)}
-															>
-																{isSwitchingModel ? <Spinner className="size-3" /> : "Use this"}
-															</Button>
-														) : (
-															<Button
-																size="sm"
-																variant="secondary"
-																className="h-6 text-[10px] px-2"
-																disabled={isPullingModel !== null}
-																onClick={() => handlePullModel(model.name)}
-															>
-																<HugeiconsIcon icon={Download04Icon} className="size-3 mr-0.5" />
-																Pull & Use
-															</Button>
-														)}
-													</div>
-												</div>
-											);
-										})}
-									</div>
-
-									{pullError && (
-										<p className="text-[11px] text-destructive">{pullError}</p>
-									)}
-								</div>
-							)}
-						</ServiceCard>
-
-						{/* ── 3. TTS (Voice Generation) ── */}
+						{/* ── 2. TTS (Voice Generation) ── */}
 						<ServiceCard
 							title="Voice (TTS)"
 							status={isTTSRunning
@@ -784,7 +504,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 							)}
 						</ServiceCard>
 
-						{/* ── 4. Whisper (Transcription) ── */}
+						{/* ── 3. Whisper (Transcription) ── */}
 						<ServiceCard
 							title="Whisper (Transcription)"
 							status={isWhisperRunning
@@ -923,7 +643,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 							)}
 						</ServiceCard>
 
-						{/* ── 5. Image Generation ── */}
+						{/* ── 4. Image Generation ── */}
 						<ServiceCard
 							title="Image Generation"
 							status={isImageRunning

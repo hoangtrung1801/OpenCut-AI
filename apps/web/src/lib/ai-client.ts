@@ -41,30 +41,6 @@ interface MemoryStatus {
 	total: number;
 }
 
-export interface ServiceInfo {
-	status: string;
-	version?: string;
-	port?: number;
-	url?: string;
-	models?: { name: string; size: number; modified_at: string }[];
-	default_model?: string;
-	model_size?: string;
-	device?: string;
-	description?: string;
-}
-
-export interface ServicesStatus {
-	services: {
-		backend: ServiceInfo;
-		ollama: ServiceInfo;
-		whisper: ServiceInfo;
-		tts: ServiceInfo;
-		diffusion: ServiceInfo;
-	};
-	memory: Record<string, unknown>;
-	active_model: string | null;
-}
-
 const HEALTH_TIMEOUT_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const LLM_TIMEOUT_MS = 600_000; // 10 min — LLM generation can be slow on CPU
@@ -1047,74 +1023,6 @@ class AIClient {
 		});
 	}
 
-	async llmStatus(): Promise<{
-		available: boolean;
-		default_model: string;
-		models: { name: string; size: number; modified_at: string; details?: Record<string, unknown> }[];
-	}> {
-		return this.request("/api/llm/status");
-	}
-
-	async pullModel(
-		modelName: string,
-		onProgress?: (progress: number, status: string) => void,
-	): Promise<void> {
-		const url = `${this.baseUrl}/api/llm/pull-model`;
-		const response = await fetch(url, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ model: modelName }),
-		});
-
-		if (!response.ok) {
-			const errorBody = await response.text().catch(() => "Unknown error");
-			throw new Error(`AI Backend error (${response.status}): ${errorBody}`);
-		}
-
-		if (!response.body) return;
-
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-
-			const chunk = decoder.decode(value, { stream: true });
-			const lines = chunk.split("\n").filter(Boolean);
-
-			for (const line of lines) {
-				try {
-					const data = JSON.parse(line) as {
-						status?: string;
-						progress?: number;
-						message?: string;
-					};
-					if (data.status === "error") {
-						throw new Error(data.message ?? "Pull failed");
-					}
-					if (onProgress && data.progress !== undefined) {
-						onProgress(data.progress, data.status ?? "downloading");
-					}
-				} catch (e) {
-					if (e instanceof Error && e.message !== "Pull failed") continue;
-					throw e;
-				}
-			}
-		}
-	}
-
-	async setLLMModel(modelName: string): Promise<{
-		status: string;
-		previous_model: string;
-		current_model: string;
-	}> {
-		return this.request("/api/llm/set-model", {
-			method: "POST",
-			body: JSON.stringify({ model: modelName }),
-		});
-	}
-
 	async downloadModel(
 		modelName: string,
 		onProgress?: (progress: number) => void,
@@ -1163,18 +1071,6 @@ class AIClient {
 
 	async getMemoryStatus(): Promise<MemoryStatus> {
 		return this.request<MemoryStatus>("/api/system/memory");
-	}
-
-	async getServicesStatus(): Promise<ServicesStatus> {
-		return this.request<ServicesStatus>("/api/services/status", {}, HEALTH_TIMEOUT_MS);
-	}
-
-	async pullOllamaModel(
-		modelName: string,
-		onProgress?: (progress: number, status: string) => void,
-	): Promise<{ status: string; model: string }> {
-		await this.pullModel(modelName, onProgress);
-		return { status: "success", model: modelName };
 	}
 
 	async prepareWhisper(modelSize?: string): Promise<{ status: string; message: string }> {

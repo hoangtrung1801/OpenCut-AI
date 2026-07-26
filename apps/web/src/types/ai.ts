@@ -402,7 +402,7 @@ export interface TurboQuantStatus {
 	recommended_tier: string;
 	recommended_model: {
 		name: string;
-		ollama_tag: string;
+		model_tag: string;
 		memory_mb: number;
 		quality: string;
 		quantization: string;
@@ -426,7 +426,7 @@ export interface TurboQuantStatus {
 }
 
 export interface StackMemoryEstimate {
-	ollama_mb: number;
+	llm_mb: number;
 	whisper_mb: number;
 	tts_mb: number;
 	kv_cache_compressed_mb: number;
@@ -457,7 +457,7 @@ export interface ModelTierSpec {
 	min_ram_mb: number;
 	models: {
 		name: string;
-		ollama_tag: string;
+		model_tag: string;
 		memory_mb: number;
 		quality: string;
 		description: string;
@@ -467,11 +467,11 @@ export interface ModelTierSpec {
 
 export interface ModelRecommendation {
 	recommendation: {
-		ollama_model: string;
-		ollama_model_name: string;
-		ollama_memory_mb: number;
-		ollama_quality: string;
-		ollama_quantization: string;
+		model: string;
+		model_name: string;
+		model_memory_mb: number;
+		model_quality: string;
+		model_quantization: string;
 		whisper_model: string;
 		whisper_compute_type: string;
 		whisper_memory_mb: number;

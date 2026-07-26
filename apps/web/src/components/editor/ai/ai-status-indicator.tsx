@@ -223,45 +223,39 @@ export function AIStatusIndicator({
 										Services
 									</span>
 								</div>
-								<div className="flex flex-col gap-1">
-									{([
-										{ key: "ollama" as const, label: "LLM" },
-										{ key: "tts" as const, label: "Voice" },
-										{ key: "whisper" as const, label: "Whisper" },
-										{ key: "image" as const, label: "Image" },
-									] as const).map(({ key, label }) => {
-										const svc = services[key];
-										const isRunning = svc.status === "running";
-										const modelLoaded = svc.model_loaded === true;
-										const modelInstalled = svc.model_installed !== false;
+							<div className="flex flex-col gap-1">
+								{([
+									{ key: "backend" as const, label: "LLM" },
+									{ key: "tts" as const, label: "Voice" },
+									{ key: "whisper" as const, label: "Whisper" },
+									{ key: "image" as const, label: "Image" },
+								] as const).map(({ key, label }) => {
+									const svc = services[key];
+									const isRunning = svc.status === "running";
+									const modelLoaded = svc.model_loaded === true;
+									const modelInstalled = svc.model_installed !== false;
 
-										// Determine actual readiness
-										const ollamaModelName = key === "ollama" && isRunning && Array.isArray(svc.models) && svc.models.length > 0
-											? (svc.models[0] as { name: string }).name
-											: null;
-										const isOllamaReady = key === "ollama" && isRunning && ollamaModelName !== null;
-										const isModelService = key !== "ollama";
-										const isReady = isModelService
-											? isRunning && modelLoaded
-											: isOllamaReady;
+									// The LLM is accessed through the AI backend chat endpoints.
+									const isBackend = key === "backend";
+									const isReady = isBackend ? isRunning : isRunning && modelLoaded;
 
-										const statusText = !isRunning
-											? "Offline"
-											: key === "ollama"
-												? ollamaModelName ? `Online (${ollamaModelName})` : "No model"
-												: !modelInstalled
-													? "Not installed"
-													: modelLoaded
-														? "Online"
-														: "Not loaded";
+									const statusText = !isRunning
+										? "Offline"
+										: isBackend
+											? "Online"
+											: !modelInstalled
+												? "Not installed"
+												: modelLoaded
+													? "Online"
+													: "Not loaded";
 
-										const dotColor = !isRunning
+									const dotColor = !isRunning
 											? "bg-red-500"
 											: isReady
 												? "bg-green-500"
 												: "bg-yellow-500";
 
-										const textColor = !isRunning
+									const textColor = !isRunning
 											? "text-red-400"
 											: isReady
 												? "text-green-500"

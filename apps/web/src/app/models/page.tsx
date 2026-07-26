@@ -33,7 +33,7 @@ const models: AIModel[] = [
 		provider: "MoonshotAI",
 		category: "Language Model",
 		description:
-			"MoonshotAI's flagship open-source model — 1T total / 32B active MoE architecture. Frontier-class reasoning for complex video scripts, agentic editing commands, and long-context analysis. Runs via Ollama (Q3/Q4/Q5 GGUF) or TurboQuant (HuggingFace, 4-bit NF4). Context: 128K tokens.",
+			"MoonshotAI's flagship open-source model — 1T total / 32B active MoE architecture. Frontier-class reasoning for complex video scripts, agentic editing commands, and long-context analysis through the LLM chat endpoint. Context: 128K tokens.",
 		size: "1T (32B active) MoE",
 		license: "Kimi K2 Open",
 		link: "https://github.com/MoonshotAI/Kimi-K2",
@@ -66,7 +66,7 @@ const models: AIModel[] = [
 		provider: "Meta",
 		category: "Language Model",
 		description:
-			"Powers AI commands, script writing, chapter analysis, clip finding, smart suggestions, and prompt enhancement. Runs via Ollama. Available at 1B (Lite), 3B (Standard), and 8B (Pro) with Q3/Q4/Q5 quantization.",
+			"Powers AI commands, script writing, chapter analysis, clip finding, smart suggestions, and prompt enhancement through the LLM chat endpoint. Available at 1B (Lite), 3B (Standard), and 8B (Pro) model tiers.",
 		size: "1B - 8B params",
 		license: "Llama 3 Community",
 		link: "https://github.com/meta-llama/llama-models",

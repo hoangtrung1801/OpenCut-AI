@@ -19,6 +19,7 @@ import { aiClient } from "@/lib/ai-client";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { cn } from "@/utils/ui";
 import { toast } from "sonner";
+import { insertGeneratedAudioElement } from "@/lib/media/generated-audio";
 import {
 	SARVAM_TTS_LANGUAGES,
 	SARVAM_LANGUAGE_MAP,
@@ -233,6 +234,9 @@ export function VoiceoverView() {
 
 		const taskId = `vo-seg-${Date.now()}`;
 		const langName = ALL_TTS_LANGUAGES.find((l) => l.code === language)?.name ?? language;
+		const activeProject = editor.project.getActive();
+		if (!activeProject) return;
+
 		addTask({ id: taskId, type: "voiceover", label: `Voiceover (${segments.length} segments)`, progress: "Starting..." });
 
 		setIsGenerating(true);
@@ -263,21 +267,16 @@ export function VoiceoverView() {
 				const file = new File([blob], `voiceover_seg_${i}.wav`, { type: "audio/wav" });
 				const audioUrl = URL.createObjectURL(file);
 				const duration = await getAudioDuration(audioUrl);
+				URL.revokeObjectURL(audioUrl);
 
-				editor.timeline.insertElement({
-					placement: { mode: "explicit", trackId },
-					element: {
-						type: "audio",
-						sourceType: "library",
-						sourceUrl: audioUrl,
-						name: `Voice [${language}]: ${originalText.slice(0, 25)}...`,
-						startTime: seg.start,
-						duration: duration || (seg.end - seg.start),
-						trimStart: 0,
-						trimEnd: 0,
-						sourceDuration: duration || (seg.end - seg.start),
-						volume: 1,
-					},
+				await insertGeneratedAudioElement({
+					editor,
+					projectId: activeProject.metadata.id,
+					trackId,
+					file,
+					name: `Voice [${language}]: ${originalText.slice(0, 25)}...`,
+					startTime: seg.start,
+					duration: duration || (seg.end - seg.start),
 				});
 			}
 
@@ -296,31 +295,34 @@ export function VoiceoverView() {
 	// Add full voiceover to timeline
 	const handleAddToTimeline = useCallback(async () => {
 		if (!generatedBlob) return;
+		const activeProject = editor.project.getActive();
+		if (!activeProject) return;
 
 		const file = new File([generatedBlob], `voiceover_${Date.now()}.wav`, { type: "audio/wav" });
 		const audioUrl = URL.createObjectURL(file);
 		const duration = await getAudioDuration(audioUrl);
+		URL.revokeObjectURL(audioUrl);
 		const currentTime = editor.playback.getCurrentTime();
 
 		const trackId = editor.timeline.addTrack({ type: "audio", index: 0 });
 
-		editor.timeline.insertElement({
-			placement: { mode: "explicit", trackId },
-			element: {
-				type: "audio",
-				sourceType: "library",
-				sourceUrl: audioUrl,
+		try {
+			await insertGeneratedAudioElement({
+				editor,
+				projectId: activeProject.metadata.id,
+				trackId,
+				file,
 				name: "Voiceover",
 				startTime: currentTime,
 				duration: duration || 5,
-				trimStart: 0,
-				trimEnd: 0,
-				sourceDuration: duration || 5,
-				volume: 1,
-			},
-		});
+			});
 
-		toast.success("Voiceover added to timeline");
+			toast.success("Voiceover added to timeline");
+		} catch (error) {
+			toast.error("Failed to add voiceover", {
+				description: error instanceof Error ? error.message : "Unknown error",
+			});
+		}
 	}, [editor, generatedBlob]);
 
 	// Upload voice sample for cloning (local engine only)

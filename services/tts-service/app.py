@@ -302,7 +302,7 @@ app.add_middleware(
 
 SUPPORTED_LANGUAGES = [
     "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl",
-    "cs", "ar", "zh-cn", "ja", "hu", "ko",
+    "cs", "ar", "zh-cn", "ja", "hu", "ko", "vi",
 ]
 
 

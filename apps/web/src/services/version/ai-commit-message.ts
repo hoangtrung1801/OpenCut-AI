@@ -7,27 +7,18 @@ const AI_BACKEND_URL =
 
 /**
  * Generate an AI-powered commit message from a diff.
- * Tries the local AI backend first, falls back to Ollama.
+ * Generates the message through the AI backend's LLM chat endpoint.
  */
 export async function generateAICommitMessage(
 	diff: TimelineDiff,
 ): Promise<string | null> {
 	const prompt = buildPrompt(diff);
 
-	// Try AI backend
 	try {
 		const message = await tryAIBackend(prompt);
 		if (message) return message;
 	} catch {
-		// Fall through to Ollama
-	}
-
-	// Try Ollama
-	try {
-		const message = await tryOllama(prompt);
-		if (message) return message;
-	} catch {
-		// Both failed
+		// AI commit messages are optional; callers can use the normal fallback.
 	}
 
 	return null;
@@ -77,12 +68,11 @@ async function tryAIBackend(prompt: string): Promise<string | null> {
 	const timeout = setTimeout(() => controller.abort(), 10000);
 
 	try {
-		const response = await fetch(`${AI_BACKEND_URL}/api/llm/chat/stream`, {
+		const response = await fetch(`${AI_BACKEND_URL}/api/llm/chat`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				messages: [{ role: "user", content: prompt }],
-				stream: false,
+				message: prompt,
 			}),
 			signal: controller.signal,
 		});
@@ -92,31 +82,6 @@ async function tryAIBackend(prompt: string): Promise<string | null> {
 		const data = await response.json();
 		const text = data?.response || data?.message?.content || data?.choices?.[0]?.message?.content;
 		return text ? cleanCommitMessage(text) : null;
-	} finally {
-		clearTimeout(timeout);
-	}
-}
-
-async function tryOllama(prompt: string): Promise<string | null> {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 15000);
-
-	try {
-		const response = await fetch("http://localhost:11434/api/generate", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				model: "llama3.2:1b",
-				prompt,
-				stream: false,
-			}),
-			signal: controller.signal,
-		});
-
-		if (!response.ok) return null;
-
-		const data = await response.json();
-		return data?.response ? cleanCommitMessage(data.response) : null;
 	} finally {
 		clearTimeout(timeout);
 	}

@@ -11,10 +11,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/utils/ui";
-import { SARVAM_TTS_LANGUAGES, SARVAM_TTS_SPEAKERS } from "@/constants/sarvam-constants";
 import { toast } from "sonner";
 
 const DUBBING_LANGUAGES = [
@@ -36,6 +36,7 @@ const DUBBING_LANGUAGES = [
 	{ code: "ja", name: "Japanese" },
 	{ code: "ko", name: "Korean" },
 	{ code: "zh", name: "Chinese" },
+	{ code: "vi", name: "Vietnamese" },
 	{ code: "ar", name: "Arabic" },
 	{ code: "ru", name: "Russian" },
 	{ code: "it", name: "Italian" },
@@ -47,19 +48,9 @@ const ENGINES: Array<{
 	description: string;
 }> = [
 	{
-		value: "sarvam",
-		label: "Sarvam AI",
-		description: "11 Indian languages, 23 voices",
-	},
-	{
-		value: "smallest",
-		label: "Smallest AI",
-		description: "15 languages, 80+ voices, low latency",
-	},
-	{
 		value: "local",
-		label: "Local XTTS",
-		description: "Voice cloning, any language",
+		label: "Local OmniVoice",
+		description: "Auto voice or voice design, any language",
 	},
 ];
 
@@ -70,12 +61,8 @@ export function AIDubbingPanel() {
 	const { runDubbing, isDubbing, progress } = useAIDubbing();
 
 	const [targetLanguage, setTargetLanguage] = useState("hi");
-	const [engine, setEngine] = useState<DubbingEngine>("sarvam");
-	const [voiceId, setVoiceId] = useState("shubh");
-
-	const isSarvamLang = SARVAM_TTS_LANGUAGES.some(
-		(l) => l.code === targetLanguage,
-	);
+	const [engine, setEngine] = useState<DubbingEngine>("local");
+	const [voiceDesign, setVoiceDesign] = useState("");
 
 	const handleDub = useCallback(() => {
 		if (segments.length === 0) {
@@ -89,21 +76,9 @@ export function AIDubbingPanel() {
 		runDubbing({
 			targetLanguage,
 			engine,
-			voiceId,
+			voiceDesign,
 		});
-	}, [segments, language, targetLanguage, engine, voiceId, runDubbing]);
-
-	const voiceOptions =
-		engine === "sarvam"
-			? SARVAM_TTS_SPEAKERS.map((s) => ({ id: s.id, name: s.name }))
-			: engine === "smallest"
-				? [
-						{ id: "emily", name: "Emily" },
-						{ id: "jasper", name: "Jasper" },
-						{ id: "matthew", name: "Matthew" },
-						{ id: "maitrayi", name: "Maitrayi" },
-					]
-				: [{ id: "default", name: "Default" }];
+	}, [segments, language, targetLanguage, engine, voiceDesign, runDubbing]);
 
 	return (
 		<div className="flex flex-col gap-4 p-3">
@@ -148,21 +123,16 @@ export function AIDubbingPanel() {
 				<div className="flex flex-col gap-1">
 					{ENGINES.map((e) => {
 						const isActive = engine === e.value;
-						const isDisabled =
-							e.value === "sarvam" && !isSarvamLang && targetLanguage !== "en";
 						return (
 							<button
 								key={e.value}
 								type="button"
-								disabled={isDisabled}
 								onClick={() => setEngine(e.value)}
 								className={cn(
 									"flex items-center justify-between rounded-md border px-2.5 py-1.5 text-left transition-colors",
 									isActive
 										? "border-primary/40 bg-primary/5"
-										: isDisabled
-											? "opacity-50 cursor-not-allowed"
-											: "border-border hover:bg-accent cursor-pointer",
+										: "border-border hover:bg-accent cursor-pointer",
 								)}
 							>
 								<div className="flex items-center gap-1.5">
@@ -195,19 +165,21 @@ export function AIDubbingPanel() {
 			</div>
 
 			<div className="flex flex-col gap-1.5">
-				<Label className="text-[10px]">Voice</Label>
-				<Select value={voiceId} onValueChange={setVoiceId}>
-					<SelectTrigger className="w-full">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						{voiceOptions.map((v) => (
-							<SelectItem key={v.id} value={v.id}>
-								{v.name}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				<Label htmlFor="ai-dubbing-voice-design" className="text-[10px]">
+					Voice design (optional)
+				</Label>
+				<Input
+					id="ai-dubbing-voice-design"
+					size="sm"
+					value={voiceDesign}
+					onChange={(event) => setVoiceDesign(event.target.value)}
+					placeholder="female, young adult, high pitch, british accent"
+					className="text-[10px]"
+				/>
+				<p className="text-[9px] text-muted-foreground leading-relaxed">
+					Leave blank for Auto voice. You can describe gender, age, pitch, whisper
+					style, accents, or Chinese dialects such as 四川话.
+				</p>
 			</div>
 
 			{progress && (

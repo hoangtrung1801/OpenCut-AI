@@ -50,6 +50,7 @@ const LANGUAGE_OPTIONS = [
 	{ value: "ja", label: "Japanese" },
 	{ value: "ko", label: "Korean" },
 	{ value: "zh", label: "Chinese" },
+	{ value: "vi", label: "Vietnamese" },
 	{ value: "hi", label: "Hindi" },
 	{ value: "ar", label: "Arabic" },
 ];

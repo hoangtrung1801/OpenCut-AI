@@ -85,18 +85,23 @@ class OpenAIProvider:
     ) -> dict[str, Any]:
         selected_model = model or self.default_model
         start = time.monotonic()
+        request: dict[str, Any] = {
+            "model": selected_model,
+            "messages": messages,
+            # `max_tokens` is deprecated and rejected by newer reasoning
+            # models such as GPT-5.4/5.5/5.6. This field is supported by
+            # both the newer models and current legacy chat models.
+            "max_completion_tokens": max_tokens,
+            "stream": False,
+        }
+        # GPT-5 reasoning models only accept their default sampling behavior;
+        # sending temperature/top_p values produces a 400 even when the
+        # values are otherwise valid for older chat models.
+        if not selected_model.lower().startswith("gpt-5"):
+            request.update(temperature=temperature, top_p=top_p)
+
         try:
-            response = self._get_client().chat.completions.create(
-                model=selected_model,
-                messages=messages,
-                # `max_tokens` is deprecated and rejected by newer reasoning
-                # models such as GPT-5.4/5.5/5.6. This field is supported by
-                # both the newer models and current legacy chat models.
-                max_completion_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                stream=False,
-            )
+            response = self._get_client().chat.completions.create(**request)
         except OpenAIProviderError:
             raise
         except Exception as exc:

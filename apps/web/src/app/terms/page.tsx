@@ -109,7 +109,7 @@ export default function TermsPage() {
 				</p>
 				<ul className="list-disc space-y-2 pl-6">
 					<li>
-						Transcription (Whisper), TTS (Coqui XTTS), LLM (Ollama), and image generation
+						Transcription (Whisper), TTS (Coqui XTTS), LLM chat endpoints, and image generation
 						(Stable Diffusion) run on your hardware
 					</li>
 					<li>No AI processing is done on external servers unless you explicitly configure API keys</li>

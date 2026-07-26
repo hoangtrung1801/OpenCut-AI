@@ -237,9 +237,9 @@ export function PodcastClipsView() {
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to find clips";
 			const detail = message.includes("Cannot connect") || message.includes("connection_refused")
-				? "Cannot connect to AI backend. Make sure it is running with Ollama (docker compose up -d)."
+				? "Cannot connect to the AI backend. Make sure the LLM chat endpoint is running."
 				: message.includes("503")
-					? "Ollama LLM is not available. Start it with: docker compose up -d ollama"
+					? "The LLM chat endpoint is not available. Check the AI backend configuration."
 					: message;
 			bgTasks.updateTask(taskId, {
 				status: "error",
@@ -542,9 +542,9 @@ export function PodcastClipsView() {
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to generate question cards";
 			const detail = message.includes("Cannot connect") || message.includes("connection_refused")
-				? "Cannot connect to AI backend. Make sure Ollama is running."
+				? "Cannot connect to the AI backend. Make sure the LLM chat endpoint is running."
 				: message.includes("503")
-					? "Ollama LLM is not available. Start it with: docker compose up -d ollama"
+					? "The LLM chat endpoint is not available. Check the AI backend configuration."
 					: message;
 			bgTasks.updateTask(taskId, {
 				status: "error",

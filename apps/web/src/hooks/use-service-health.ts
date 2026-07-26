@@ -19,7 +19,6 @@ export interface ServiceHealth {
 
 export interface AllServicesHealth {
 	backend: ServiceHealth;
-	ollama: ServiceHealth;
 	whisper: ServiceHealth;
 	tts: ServiceHealth;
 	image: ServiceHealth;
@@ -29,7 +28,6 @@ export interface AllServicesHealth {
 
 export const SERVICE_URLS = {
 	backend: process.env.NEXT_PUBLIC_AI_BACKEND_URL || "http://localhost:8420",
-	ollama: "http://localhost:11434",
 	whisper: process.env.NEXT_PUBLIC_WHISPER_SERVICE_URL || "http://localhost:8421",
 	tts: process.env.NEXT_PUBLIC_TTS_SERVICE_URL || "http://localhost:8422",
 	image: process.env.NEXT_PUBLIC_IMAGE_SERVICE_URL || "http://localhost:8423",
@@ -41,7 +39,6 @@ export type ServiceName = keyof typeof SERVICE_URLS;
 
 export const SERVICE_DOCKER_COMMANDS: Record<ServiceName, string> = {
 	backend: "docker compose up -d ai-backend",
-	ollama: "docker compose up -d ollama",
 	whisper: "docker compose up -d whisper-service",
 	tts: "docker compose up -d tts-service",
 	image: "docker compose up -d image-service",
@@ -92,30 +89,6 @@ export async function checkServiceHealth(baseUrl: string): Promise<ServiceHealth
 	}
 }
 
-// Ollama uses a different health endpoint
-async function checkOllamaHealth(): Promise<ServiceHealth> {
-	try {
-		// Ollama root endpoint returns 200 when running
-		const resp = await fetch(SERVICE_URLS.ollama, { signal: AbortSignal.timeout(5000) });
-		if (!resp.ok) return { status: "error", detail: `HTTP ${resp.status}` };
-
-		// Also fetch models list
-		try {
-			const tagsResp = await fetch(`${SERVICE_URLS.ollama}/api/tags`, { signal: AbortSignal.timeout(5000) });
-			if (tagsResp.ok) {
-				const tagsData = await tagsResp.json();
-				return { status: "running", models: tagsData.models ?? [] };
-			}
-		} catch {
-			// Models list failed but ollama is running
-		}
-
-		return { status: "running" };
-	} catch {
-		return { status: "stopped", detail: "Not reachable" };
-	}
-}
-
 // ----- Proxied health check via AI backend -----
 
 /**
@@ -138,21 +111,19 @@ async function checkAllViaBackend(): Promise<AllServicesHealth> {
 
 		return {
 			backend: toHealth(data.backend),
-			ollama: toHealth(data.ollama),
 			whisper: toHealth(data.whisper),
 			tts: toHealth(data.tts),
 			image: toHealth(data.image),
 		};
 	} catch {
 		// Backend itself is not reachable — fall back to direct checks
-		const [backend, ollama, whisper, tts, image] = await Promise.all([
+		const [backend, whisper, tts, image] = await Promise.all([
 			checkServiceHealth(SERVICE_URLS.backend),
-			checkOllamaHealth(),
 			checkServiceHealth(SERVICE_URLS.whisper),
 			checkServiceHealth(SERVICE_URLS.tts),
 			checkServiceHealth(SERVICE_URLS.image),
 		]);
-		return { backend, ollama, whisper, tts, image };
+		return { backend, whisper, tts, image };
 	}
 }
 
@@ -163,7 +134,6 @@ const POLL_INTERVAL = 30_000;
 export function useServiceHealth(pollEnabled = true) {
 	const [services, setServices] = useState<AllServicesHealth>({
 		backend: { status: "stopped" },
-		ollama: { status: "stopped" },
 		whisper: { status: "stopped" },
 		tts: { status: "stopped" },
 		image: { status: "stopped" },

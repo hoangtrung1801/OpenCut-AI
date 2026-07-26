@@ -16,6 +16,7 @@ const WHISPER_TRANSCRIPTION_LANGS: ReadonlyArray<LanguageCode> = [
 	"ru",
 	"ja",
 	"zh",
+	"vi",
 ];
 
 /** All languages supported for transcription (Whisper + Sarvam Indian languages) */

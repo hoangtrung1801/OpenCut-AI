@@ -11,7 +11,7 @@ function formatCommandError(error: unknown): string {
 			case "timeout":
 				return "Command timed out. The LLM may still be loading — try again in a moment.";
 			case "backend_error":
-				return `AI backend error: ${error.message}. Check that Ollama is running with a model loaded.`;
+				return `AI backend error: ${error.message}. Check that the LLM chat endpoint is configured.`;
 			default:
 				return error.message;
 		}

@@ -165,7 +165,7 @@ export default async function ContributorsPage() {
 						None of this would work without the broader open-source ecosystem.
 						<strong> Whisper</strong> handles transcription.
 						<strong> Coqui TTS</strong> generates voices.
-						<strong> Ollama</strong> runs LLMs locally.
+						<strong> LLM chat endpoints</strong> power AI-assisted editing.
 						<strong> Stable Diffusion</strong> creates images.
 						<strong> Next.js</strong>, <strong>React</strong>, <strong>Tailwind</strong>,
 						<strong> FastAPI</strong>, and <strong>Docker</strong> hold it all together.

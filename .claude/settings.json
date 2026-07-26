@@ -1,7 +1,0 @@
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.bddevlab.online/",
-    "ANTHROPIC_AUTH_TOKEN": "sk-JkvK7bcnvwhQYGnK5SSjVdwJzcwY8YdrBqCFVggWYJRpdfIC"
-  },
-  "hooks": {}
-}

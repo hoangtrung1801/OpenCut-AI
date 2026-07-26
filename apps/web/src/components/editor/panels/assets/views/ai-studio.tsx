@@ -334,17 +334,6 @@ export function AIStudioView() {
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 
-	// ── Model name display ──
-	const [activeModel, setActiveModel] = useState("");
-
-	useEffect(() => {
-		aiClient.llmStatus().then((data) => {
-			if (data.available) {
-				setActiveModel(data.default_model || "");
-			}
-		}).catch(() => {});
-	}, []);
-
 	// Auto-scroll on new messages
 	useEffect(() => {
 		if (scrollRef.current) {
@@ -421,10 +410,9 @@ export function AIStudioView() {
 			}
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : "";
-			const isOllamaDown = detail.includes("503") || detail.includes("Ollama");
-			const errorContent = isOllamaDown
-				? "Ollama is not running or no LLM model is loaded. Open the AI Setup guide (click the AI indicator in the header) to pull a model like `llama3.2:1b`."
-				: `Something went wrong: ${detail || "Unknown error"}. Make sure the AI backend and Ollama are running with a model loaded.`;
+			const errorContent = detail.includes("503")
+				? "The LLM chat endpoint is unavailable. Check that the AI backend is running and configured."
+				: `Something went wrong: ${detail || "Unknown error"}. Check the AI backend and LLM chat endpoint.`;
 
 			if (!messageAdded) {
 				addMessage({ id: assistantId, role: "assistant", content: errorContent });
@@ -478,18 +466,14 @@ export function AIStudioView() {
 			{/* Header */}
 			<div className="bg-background h-11 shrink-0 px-4 pr-2 flex items-center justify-between border-b">
 				<div className="flex items-center gap-2">
-					{activeModel && (
-						<Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-mono">
-							{activeModel}
-						</Badge>
-					)}
 					{!isConnected && (
 						<Badge variant="outline" className="text-[8px] px-1.5 py-0 text-yellow-500 border-yellow-500/30">
 							Offline
 						</Badge>
 					)}
 				</div>
-				<div className="flex items-center gap-1">
+				<div className="min-w-0 flex-1 overflow-x-auto">
+					<div className="flex w-max min-w-full items-center justify-end gap-1 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
 					{(mode === "chat" || mode === "transcript") && messages.length > 0 && (
 						<Button
 							variant="ghost"
@@ -609,6 +593,7 @@ export function AIStudioView() {
 					>
 						A/B Test
 					</Button>
+					</div>
 				</div>
 			</div>
 

@@ -127,6 +127,8 @@ class OpenAIProviderTests(unittest.TestCase):
 
             self.assertEqual(completions.last_request["max_completion_tokens"], 128)
             self.assertNotIn("max_tokens", completions.last_request)
+            self.assertNotIn("temperature", completions.last_request)
+            self.assertNotIn("top_p", completions.last_request)
 
     def test_missing_api_key_fails_with_configuration_error(self):
         OpenAIProvider = self._import_provider()

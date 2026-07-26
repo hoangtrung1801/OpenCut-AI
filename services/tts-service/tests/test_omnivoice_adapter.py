@@ -5,10 +5,13 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from app import TTSService
+from app import SUPPORTED_LANGUAGES, TTSService
 
 
 class OmniVoiceAdapterTest(unittest.TestCase):
+    def test_supported_languages_include_vietnamese(self):
+        self.assertIn("vi", SUPPORTED_LANGUAGES)
+
     def setUp(self):
         self.service = TTSService()
 

@@ -84,7 +84,7 @@ export const KV_CACHE_CONFIGS = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Quantization format labels (for Ollama GGUF models)
+// Quantization format labels for local model artifacts
 // ---------------------------------------------------------------------------
 
 export const QUANTIZATION_LABELS: Record<string, string> = {
@@ -102,13 +102,13 @@ export const QUANTIZATION_LABELS: Record<string, string> = {
 
 export const STACK_BENCHMARKS = {
 	withoutTurboQuant: {
-		"ollama_3b_whisper_base_tts": { label: "Ollama 3B + Whisper + TTS", memoryGb: 12 },
-		"ollama_7b_whisper_medium_tts_sd": { label: "Ollama 7B + Whisper Medium + TTS + SD", memoryGb: 30 },
+		"llm_3b_whisper_base_tts": { label: "LLM 3B + Whisper + TTS", memoryGb: 12 },
+		"llm_7b_whisper_medium_tts_sd": { label: "LLM 7B + Whisper Medium + TTS + SD", memoryGb: 30 },
 		"full_stack": { label: "Full stack (all services)", memoryGb: 35 },
 	},
 	withTurboQuant: {
-		"ollama_3b_whisper_base_tts": { label: "Ollama 3B + Whisper + TTS", memoryGb: 5 },
-		"ollama_7b_whisper_medium_tts_sd": { label: "Ollama 7B + Whisper Medium + TTS + SD", memoryGb: 12 },
+		"llm_3b_whisper_base_tts": { label: "LLM 3B + Whisper + TTS", memoryGb: 5 },
+		"llm_7b_whisper_medium_tts_sd": { label: "LLM 7B + Whisper Medium + TTS + SD", memoryGb: 12 },
 		"full_stack": { label: "Full stack (all services)", memoryGb: 15 },
 	},
 } as const;

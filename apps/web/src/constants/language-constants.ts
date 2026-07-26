@@ -9,6 +9,7 @@ export const LANGUAGES = [
 	{ code: "ru", name: "Russian" },
 	{ code: "ja", name: "Japanese" },
 	{ code: "zh", name: "Chinese" },
+	{ code: "vi", name: "Vietnamese" },
 	// Indian regional languages (Sarvam AI)
 	{ code: "hi", name: "Hindi" },
 	{ code: "bn", name: "Bengali" },
