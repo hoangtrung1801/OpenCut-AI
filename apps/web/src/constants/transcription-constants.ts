@@ -86,5 +86,5 @@ export const DEFAULT_TRANSCRIPTION_MODEL: TranscriptionModelId =
 export const DEFAULT_CHUNK_LENGTH_SECONDS = 30;
 export const DEFAULT_STRIDE_SECONDS = 5;
 
-export const DEFAULT_WORDS_PER_CAPTION = 3;
+export const DEFAULT_MAX_CHARS_PER_LINE = 42;
 export const MIN_CAPTION_DURATION_SECONDS = 0.8;

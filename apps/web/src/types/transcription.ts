@@ -54,6 +54,7 @@ export interface CaptionChunk {
 	text: string;
 	startTime: number;
 	duration: number;
+	words?: { word: string; start: number; end: number }[];
 }
 
 /** Sarvam translation request */
