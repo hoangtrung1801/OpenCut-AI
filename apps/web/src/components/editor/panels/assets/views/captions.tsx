@@ -26,6 +26,7 @@ import type { TranscriptionLanguage, TranscriptionEngine } from "@/types/transcr
 import { Spinner } from "@/components/ui/spinner";
 import { Label } from "@/components/ui/label";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import { buildCaptionChunks } from "@/lib/transcription/caption";
 import { getElementsAtTime, hasMediaId } from "@/lib/timeline";
 import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
@@ -473,12 +474,21 @@ export function Captions() {
 		const currentSegments = useTranscriptStore.getState().segments;
 		if (currentSegments.length === 0) return;
 
-		const trackId = addSubtitleTrack({
-			subtitleSegments: currentSegments.map((seg) => ({
+		const chunks = buildCaptionChunks({
+			segments: currentSegments.map((seg) => ({
 				text: seg.text,
 				start: seg.start,
 				end: seg.end,
 				words: seg.words,
+			})),
+		});
+
+		const trackId = addSubtitleTrack({
+			subtitleSegments: chunks.map((chunk) => ({
+				text: chunk.text,
+				start: chunk.startTime,
+				end: chunk.startTime + chunk.duration,
+				words: chunk.words,
 			})),
 			languageLabel: "Subtitle",
 		});
