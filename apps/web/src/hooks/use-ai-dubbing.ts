@@ -19,6 +19,7 @@ export interface DubbingOptions {
 	engine: DubbingEngine;
 	voiceId?: string;
 	voiceDesign?: string;
+	voiceClonePath?: string;
 	pace?: number;
 	segmentIndices?: number[];
 }
@@ -34,8 +35,13 @@ export function buildLocalTTSRequest(
 	text: string,
 	language: string,
 	voiceDesign?: string,
+	voiceClonePath?: string,
 ): TTSRequest {
 	const request: TTSRequest = { text, language };
+	if (voiceClonePath) {
+		request.speakerWav = voiceClonePath;
+		return request;
+	}
 	const speaker = voiceDesign?.trim();
 	if (speaker) request.speaker = speaker;
 	return request;
@@ -166,7 +172,8 @@ export function useAIDubbing() {
 							buildLocalTTSRequest(
 								translatedText,
 								options.targetLanguage,
-								options.voiceDesign ?? options.voiceId,
+								options.voiceDesign,
+								options.voiceClonePath,
 							),
 						);
 					}

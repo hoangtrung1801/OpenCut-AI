@@ -23,3 +23,30 @@ describe("buildLocalTTSRequest", () => {
 		});
 	});
 });
+
+describe("buildLocalTTSRequest with voice cloning", () => {
+	test("uses speakerWav and skips voice design when a clone path is given", () => {
+		expect(
+			buildLocalTTSRequest(
+				"Hello",
+				"en",
+				"female, young adult",
+				"generated/voices/alice.wav",
+			),
+		).toEqual({
+			text: "Hello",
+			language: "en",
+			speakerWav: "generated/voices/alice.wav",
+		});
+	});
+
+	test("falls back to voice design when no clone path is given", () => {
+		expect(
+			buildLocalTTSRequest("Hello", "en", "female, young adult", undefined),
+		).toEqual({
+			text: "Hello",
+			language: "en",
+			speaker: "female, young adult",
+		});
+	});
+});
