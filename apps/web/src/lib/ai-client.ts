@@ -95,6 +95,15 @@ function classifyError(error: unknown): { message: string; errorType: AIErrorTyp
 	return { message, errorType: "unknown" };
 }
 
+export function buildTTSRequestBody(request: TTSRequest) {
+	return {
+		text: request.text,
+		language: request.language,
+		speaker_wav: request.speakerWav,
+		speaker: request.speaker,
+	};
+}
+
 /** Read an API key from localStorage (set via the Settings panel). */
 function getStoredApiKey(key: string): string {
 	if (typeof window === "undefined") return "";
@@ -578,7 +587,7 @@ class AIClient {
 	async generateSpeech(request: TTSRequest): Promise<TTSResult> {
 		return this.request<TTSResult>("/api/tts/generate", {
 			method: "POST",
-			body: JSON.stringify(request),
+			body: JSON.stringify(buildTTSRequestBody(request)),
 		});
 	}
 
@@ -591,7 +600,7 @@ class AIClient {
 			const response = await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(request),
+				body: JSON.stringify(buildTTSRequestBody(request)),
 				signal: controller.signal,
 			});
 
