@@ -29,6 +29,15 @@ class PreparedMedia:
     background_path: Path
     temporary_paths: tuple[Path, ...] = ()
 
+    def cleanup_temporary(self) -> None:
+        """Remove request-scoped intermediates while retaining completed MP3 stems."""
+        for path in self.temporary_paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                # Cleanup must not make a successful transcription fail.
+                continue
+
 
 class SeparatedAudio(BaseModel):
     vocals_url: str
