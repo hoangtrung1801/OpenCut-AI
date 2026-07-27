@@ -12,7 +12,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+
+from models import (
+    TranscriptionResult,
+    TranscriptionSegment,
+    TranscriptionWord,
+)
+from settings import Settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,10 +26,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration via environment variables
 # ---------------------------------------------------------------------------
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3")
-WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
-WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+settings = Settings.from_env()
+WHISPER_MODEL_SIZE = settings.whisper_model_size
+WHISPER_DEVICE = settings.whisper_device
+WHISPER_COMPUTE_TYPE = settings.whisper_compute_type
+UPLOAD_DIR = str(settings.upload_dir)
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -80,37 +87,6 @@ AVAILABLE_WHISPER_MODELS = [
 ]
 
 _MODEL_MAP = {m["name"]: m for m in AVAILABLE_WHISPER_MODELS}
-
-# ---------------------------------------------------------------------------
-# Pydantic models
-# ---------------------------------------------------------------------------
-
-
-class TranscriptionWord(BaseModel):
-    word: str
-    start: float = Field(..., description="Start time in seconds")
-    end: float = Field(..., description="End time in seconds")
-    probability: float = Field(
-        default=1.0, ge=0.0, le=1.0, description="Confidence score"
-    )
-
-
-class TranscriptionSegment(BaseModel):
-    id: int
-    text: str
-    start: float = Field(..., description="Start time in seconds")
-    end: float = Field(..., description="End time in seconds")
-    words: list[TranscriptionWord] = Field(default_factory=list)
-    avg_logprob: float = 0.0
-    no_speech_prob: float = 0.0
-
-
-class TranscriptionResult(BaseModel):
-    text: str = Field(..., description="Full transcribed text")
-    segments: list[TranscriptionSegment] = Field(default_factory=list)
-    language: str = Field(default="en", description="Detected or specified language")
-    duration: float = Field(default=0.0, description="Audio duration in seconds")
-
 
 # ---------------------------------------------------------------------------
 # Whisper service singleton
