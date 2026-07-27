@@ -9,6 +9,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +18,9 @@ from models import (
     TranscriptionResult,
     TranscriptionSegment,
     TranscriptionWord,
+    WordToken,
 )
+from alignment import canonical_words_from_segments
 from settings import Settings
 
 logging.basicConfig(level=logging.INFO)
@@ -165,22 +168,12 @@ class WhisperService:
             "Transcribing '%s' (language=%s)...", audio_path, language or "auto"
         )
 
-        segments_iter, info = self._model.transcribe(
-            audio_path,
-            language=language,
-            beam_size=5,
-            word_timestamps=True,
-            vad_filter=True,
-            vad_parameters={
-                "min_silence_duration_ms": 500,
-                "speech_pad_ms": 200,
-            },
-        )
+        raw_segments, info, _canonical_words = self.transcribe_raw(audio_path, language)
 
         segments: list[TranscriptionSegment] = []
         full_text_parts: list[str] = []
 
-        for idx, seg in enumerate(segments_iter):
+        for idx, seg in enumerate(raw_segments):
             words = []
             if seg.words:
                 for w in seg.words:
@@ -219,6 +212,34 @@ class WhisperService:
             info.language,
         )
         return result
+
+    def transcribe_raw(
+        self,
+        audio_path: str,
+        language: str | None = None,
+    ) -> tuple[list[Any], Any, list[WordToken]]:
+        """Return raw faster-whisper segments plus canonical immutable words."""
+        if not Path(audio_path).exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        if self._model is None:
+            self.load_model()
+
+        logger.info(
+            "Transcribing '%s' (language=%s)...", audio_path, language or "auto"
+        )
+        segments_iter, info = self._model.transcribe(
+            audio_path,
+            language=language,
+            beam_size=5,
+            word_timestamps=True,
+            vad_filter=True,
+            vad_parameters={
+                "min_silence_duration_ms": 500,
+                "speech_pad_ms": 200,
+            },
+        )
+        raw_segments = list(segments_iter)
+        return raw_segments, info, canonical_words_from_segments(raw_segments)
 
 
 whisper_service = WhisperService()
