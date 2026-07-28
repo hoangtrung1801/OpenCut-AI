@@ -8,11 +8,13 @@ Runs on port 8421.
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from models import (
     TranscriptionResult,
@@ -21,6 +23,11 @@ from models import (
     WordToken,
 )
 from alignment import canonical_words_from_segments
+from alignment import WhisperAligner
+from media_pipeline import MediaPipeline, MediaProcessingError
+from pipeline import TranscriptionPipeline
+from segmentation import SpacySegmenter, validate_spacy_packages
+from semantic_client import SemanticSegmentationError, SemanticClient
 from settings import Settings
 
 logging.basicConfig(level=logging.INFO)
@@ -244,11 +251,28 @@ class WhisperService:
 
 whisper_service = WhisperService()
 
+media_pipeline = MediaPipeline(settings)
+transcription_pipeline = TranscriptionPipeline(
+    settings,
+    media=media_pipeline,
+    asr=whisper_service,
+    aligner=WhisperAligner(settings),
+    segmenter=SpacySegmenter(settings),
+    semantic=SemanticClient(settings),
+)
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="OpenCutAI Whisper Service", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if settings.spacy_enabled:
+        validate_spacy_packages()
+    yield
+
+
+app = FastAPI(title="OpenCutAI Whisper Service", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -273,6 +297,17 @@ async def health():
     return {
         "status": "ok",
         "service": "whisper",
+        "artifacts": {
+            "directory": str(settings.artifact_dir),
+            "ready": settings.artifact_dir.is_dir(),
+            "persistent": True,
+        },
+        "pipeline": {
+            "demucs_model": settings.demucs_model,
+            "semantic_max_words": settings.semantic_max_words,
+            "spacy_enabled": settings.spacy_enabled,
+            "whisperx_alignment_enabled": settings.whisperx_alignment_enabled,
+        },
         "model": {
             "loaded": whisper_service.is_loaded,
             "model_size": whisper_service.model_size or WHISPER_MODEL_SIZE,
@@ -364,45 +399,30 @@ async def transcribe(
             detail=f"Unsupported file type '{ext}'. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
         )
 
-    upload_id = uuid.uuid4().hex[:8]
-    upload_path = os.path.join(UPLOAD_DIR, f"upload_{upload_id}{ext}")
+    artifact_id = str(uuid.uuid4())
+    upload_path = os.path.join(UPLOAD_DIR, f"upload_{artifact_id}{ext}")
 
     try:
-        contents = await file.read()
-        with open(upload_path, "wb") as f:
-            f.write(contents)
+        with open(upload_path, "wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                output.write(chunk)
+        import asyncio
 
-        # For video files, extract audio via ffmpeg
-        audio_path = upload_path
-        if ext in ALLOWED_VIDEO_EXTENSIONS:
-            import subprocess
-
-            audio_path = os.path.join(UPLOAD_DIR, f"audio_{upload_id}.wav")
-            logger.info("Extracting audio from video file '%s'", file.filename)
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-i",
-                    upload_path,
-                    "-vn",
-                    "-acodec",
-                    "pcm_s16le",
-                    "-ar",
-                    "16000",
-                    "-ac",
-                    "1",
-                    audio_path,
-                    "-y",
-                ],
-                check=True,
-                capture_output=True,
-            )
-
-        result = whisper_service.transcribe(audio_path, language=language)
-        return result
+        return await asyncio.to_thread(
+            transcription_pipeline.run,
+            Path(upload_path),
+            language,
+            artifact_id,
+        )
 
     except HTTPException:
         raise
+    except SemanticSegmentationError as exc:
+        logger.warning("Semantic refinement failed for artifact %s: %s", artifact_id, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Semantic refinement unavailable.") from exc
+    except MediaProcessingError:
+        logger.exception("Media preparation failed for '%s'", file.filename)
+        raise HTTPException(status_code=500, detail="Media preparation failed.")
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception:
@@ -411,11 +431,18 @@ async def transcribe(
     finally:
         if os.path.exists(upload_path):
             os.remove(upload_path)
-        # Clean up extracted audio if different from upload
-        if ext in ALLOWED_VIDEO_EXTENSIONS:
-            audio_cleanup = os.path.join(UPLOAD_DIR, f"audio_{upload_id}.wav")
-            if os.path.exists(audio_cleanup):
-                os.remove(audio_cleanup)
+
+
+@app.get("/artifacts/{artifact_id}/{stem}")
+async def download_artifact(artifact_id: str, stem: str) -> FileResponse:
+    """Stream a completed separated audio stem without expiring it."""
+    try:
+        path = media_pipeline.artifact_path(artifact_id, stem)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Artifact not found.") from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+    return FileResponse(path, media_type="audio/mpeg", filename=f"{stem}.mp3")
 
 
 @app.post("/load")
