@@ -68,6 +68,7 @@ class ContextualTranslationModelTests(unittest.TestCase):
             CONTEXT_TRANSLATION_MAX_CAPTION_CHARS = 32
             CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER = 1.0
             CONTEXT_TRANSLATION_SPLIT_PASSES = 3
+            CONTEXT_TRANSLATION_MAX_SPLIT_PASSES = 8
             CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS = 1.0
 
         limits = ContextualTranslationLimits.from_settings(FakeSettings)
@@ -75,6 +76,7 @@ class ContextualTranslationModelTests(unittest.TestCase):
         self.assertEqual(limits.max_caption_chars, 32)
         self.assertEqual(limits.target_length_multiplier, 1.0)
         self.assertEqual(limits.split_passes, 3)
+        self.assertEqual(limits.max_split_passes, 8)
         self.assertEqual(limits.gap_close_seconds, 1.0)
 
     def test_accepts_ordered_timestamped_segments(self):

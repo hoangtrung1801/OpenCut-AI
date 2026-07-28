@@ -174,7 +174,7 @@ class CaptionPostProcessor:
             for segment in request.segments
         ]
 
-        for _ in range(self.limits.split_passes):
+        for _ in range(max(self.limits.split_passes, self.limits.max_split_passes)):
             changed = False
             next_parts: list[_WorkPart] = []
             for part in parts:

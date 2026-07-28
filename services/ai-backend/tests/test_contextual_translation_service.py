@@ -24,6 +24,7 @@ def limits(**overrides):
         "max_caption_chars": 32,
         "target_length_multiplier": 1.0,
         "split_passes": 3,
+        "max_split_passes": 8,
         "gap_close_seconds": 1.0,
     }
     values.update(overrides)

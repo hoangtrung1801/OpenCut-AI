@@ -184,6 +184,7 @@ class ContextualTranslationLimits:
     max_caption_chars: int
     target_length_multiplier: float
     split_passes: int
+    max_split_passes: int
     gap_close_seconds: float
 
     def __post_init__(self) -> None:
@@ -208,5 +209,6 @@ class ContextualTranslationLimits:
             max_caption_chars=value.CONTEXT_TRANSLATION_MAX_CAPTION_CHARS,
             target_length_multiplier=value.CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER,
             split_passes=value.CONTEXT_TRANSLATION_SPLIT_PASSES,
+            max_split_passes=value.CONTEXT_TRANSLATION_MAX_SPLIT_PASSES,
             gap_close_seconds=value.CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS,
         )

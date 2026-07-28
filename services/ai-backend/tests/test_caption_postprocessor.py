@@ -24,6 +24,7 @@ def limits(**overrides):
         "max_caption_chars": 20,
         "target_length_multiplier": 1.0,
         "split_passes": 3,
+        "max_split_passes": 8,
         "gap_close_seconds": 1.0,
     }
     values.update(overrides)
@@ -54,6 +55,38 @@ def postprocess_request(
 
 
 class CaptionPostProcessorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_adaptive_passes_handle_high_translation_expansion(self):
+        class ExpandingBackend:
+            async def generate_json(self, *, prompt, **_kwargs):
+                import json
+
+                payload = json.loads(prompt.split("Source parts: ", 1)[1].split("\n", 1)[0])
+                return {
+                    "alignments": [
+                        {"id": item["id"], "translation": "x" * max(1, len(item["source"]) * 3)}
+                        for item in payload
+                    ]
+                }
+
+        processor = CaptionPostProcessor(
+            backend=ExpandingBackend(),
+            limits=limits(),
+        )
+
+        result = await processor.process_pairs(
+            postprocess_request(
+                source=" ".join(["word"] * 24),
+                translation="y" * 350,
+                end=12,
+            )
+        )
+
+        self.assertGreater(len(result.display_segments), 8)
+        self.assertLessEqual(
+            max(len(part.translation) for part in result.display_segments),
+            32,
+        )
+
     async def test_short_pair_keeps_original_display_and_audio_granularity(self):
         backend = AsyncMock()
         processor = CaptionPostProcessor(backend=backend, limits=limits())
@@ -153,7 +186,7 @@ class CaptionPostProcessorTests(unittest.IsolatedAsyncioTestCase):
         }
         processor = CaptionPostProcessor(
             backend=backend,
-            limits=limits(split_passes=1, max_caption_chars=8),
+            limits=limits(split_passes=1, max_split_passes=1, max_caption_chars=8),
         )
 
         with self.assertRaises(CaptionPolicyError):
