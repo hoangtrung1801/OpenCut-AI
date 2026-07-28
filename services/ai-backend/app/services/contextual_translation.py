@@ -10,6 +10,8 @@ from typing import Any, Callable, TypeVar
 from pydantic import ValidationError
 
 from app.models.translation import (
+    CaptionPostProcessRequest,
+    CaptionTranslationInput,
     ContextualTranslationLimits,
     ContextualTranslationResponse,
     ContextualTranslationRequest,
@@ -17,6 +19,7 @@ from app.models.translation import (
     TranslationSegmentInput,
     TranslationTerm,
 )
+from app.services.caption_postprocessor import CaptionPostProcessor
 
 
 class ContextualTranslationError(Exception):
@@ -95,9 +98,19 @@ T = TypeVar("T")
 
 
 class ContextualTranslationService:
-    def __init__(self, *, backend: Any, limits: ContextualTranslationLimits):
+    def __init__(
+        self,
+        *,
+        backend: Any,
+        limits: ContextualTranslationLimits,
+        postprocessor: CaptionPostProcessor | None = None,
+    ):
         self.backend = backend
         self.limits = limits
+        self.caption_processor = postprocessor or CaptionPostProcessor(
+            backend=backend,
+            limits=limits,
+        )
 
     def _validate_request_limits(self, request: ContextualTranslationRequest) -> None:
         if len(request.segments) > self.limits.max_segments:
@@ -340,10 +353,30 @@ class ContextualTranslationService:
             )
             for segment in request.segments
         ]
+        source_by_id = {segment.id: segment for segment in request.segments}
+        postprocess_request = CaptionPostProcessRequest(
+            source_language=request.source_language,
+            target_language=request.target_language,
+            segments=[
+                CaptionTranslationInput(
+                    id=segment.id,
+                    source=segment.source,
+                    translation=segment.translation,
+                    start=segment.start,
+                    end=segment.end,
+                    words=[word.model_dump() for word in source_by_id[segment.id].words],
+                )
+                for segment in translated_segments
+            ],
+        )
+        processed = await self.caption_processor.process(postprocess_request)
         return ContextualTranslationResponse(
             source_language=request.source_language,
             target_language=request.target_language,
             theme=context.theme,
             terminology=context.terms,
             segments=translated_segments,
+            display_segments=processed.display_segments,
+            audio_segments=processed.audio_segments,
+            subtitles=processed.subtitles,
         )

@@ -10,3 +10,4 @@ class AppImportTest(unittest.TestCase):
 
         paths = {route.path for route in app.routes}
         self.assertIn("/api/translations/contextual", paths)
+        self.assertIn("/api/translations/captions/post-process", paths)

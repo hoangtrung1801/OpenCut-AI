@@ -108,6 +108,9 @@ class ContextualTranslationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([segment.id for segment in result.segments], [0, 1])
         self.assertEqual(result.segments[0].start, 0)
         self.assertEqual(result.segments[1].end, 4)
+        self.assertEqual(result.audio_segments[0].translation, "OpenCut is private.")
+        self.assertEqual(result.display_segments[0].parent_id, 0)
+        self.assertIn("WEBVTT", result.subtitles.translation.vtt)
         first_batch_prompt = backend.generate_json.await_args_list[1].kwargs["prompt"]
         self.assertIn("OpenCut", first_batch_prompt)
         self.assertNotIn('"source": "khác"', first_batch_prompt)
