@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from media_pipeline import MediaPipeline, MediaProcessingError
+from media_pipeline import DemucsSeparator, MediaPipeline, MediaProcessingError
 from settings import Settings
 
 
@@ -92,6 +92,14 @@ class MediaPipelineTests(unittest.TestCase):
             self.pipeline.artifact_path("../../escape", "vocals")
         with self.assertRaises(ValueError):
             self.pipeline.artifact_path(self.artifact_id, "drums")
+
+    def test_mono_input_is_upmixed_for_demucs_stereo_model(self):
+        import torch
+
+        mono = torch.ones(1, 16)
+        stereo = DemucsSeparator.normalize_channels(mono, 2)
+        self.assertEqual(tuple(stereo.shape), (2, 16))
+        self.assertTrue(torch.equal(stereo[0], stereo[1]))
 
 
 if __name__ == "__main__":

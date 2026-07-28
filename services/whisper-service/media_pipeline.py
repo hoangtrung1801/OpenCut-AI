@@ -65,6 +65,20 @@ class DemucsSeparator:
             except Exception as exc:  # pragma: no cover - exercised in deployment
                 raise MediaProcessingError(f"Unable to load Demucs model: {exc}") from exc
 
+    @staticmethod
+    def normalize_channels(waveform, expected_channels: int):
+        """Adapt decoded audio to the channel count required by the Demucs model."""
+        if waveform.ndim != 2:
+            raise MediaProcessingError("Decoded audio must have shape [channels, samples]")
+        if expected_channels <= 0:
+            raise MediaProcessingError("Demucs model reported an invalid channel count")
+        if waveform.shape[0] == expected_channels:
+            return waveform
+        # Demucs checkpoints are stereo. A mono source is duplicated so the
+        # model receives the same mix on both channels without changing ASR audio.
+        mono = waveform.mean(dim=0, keepdim=True)
+        return mono.repeat(expected_channels, 1)
+
     def separate(self, source_path: Path, output_dir: Path) -> tuple[Path, Path]:
         try:
             import torch
@@ -77,6 +91,10 @@ class DemucsSeparator:
         device = self._device()
         try:
             waveform, sample_rate = torchaudio.load(str(source_path))
+            waveform = self.normalize_channels(
+                waveform,
+                int(getattr(model, "audio_channels", 2)),
+            )
             target_device = torch.device(device)
             with self._lock, torch.inference_mode():
                 separated = apply_model(
@@ -226,4 +244,3 @@ class MediaPipeline:
             if isinstance(exc, MediaProcessingError):
                 raise
             raise MediaProcessingError(f"Media preparation failed: {exc}") from exc
-
