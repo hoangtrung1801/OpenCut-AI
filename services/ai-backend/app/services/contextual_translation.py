@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 from pydantic import ValidationError
 
 from app.models.translation import (
     ContextualTranslationLimits,
+    ContextualTranslationResponse,
     ContextualTranslationRequest,
+    TranslatedSegment,
+    TranslationSegmentInput,
     TranslationTerm,
 )
 
@@ -57,6 +61,36 @@ def merge_terms(
     return merged
 
 
+def build_batches(
+    segments: list[TranslationSegmentInput],
+    max_chars: int,
+    max_segments: int,
+) -> list[list[TranslationSegmentInput]]:
+    batches: list[list[TranslationSegmentInput]] = []
+    current: list[TranslationSegmentInput] = []
+    current_chars = 0
+
+    for segment in segments:
+        segment_chars = len(segment.text)
+        would_exceed_chars = current and current_chars + segment_chars > max_chars
+        would_exceed_count = current and len(current) >= max_segments
+        if would_exceed_chars or would_exceed_count:
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(segment)
+        current_chars += segment_chars
+
+    if current:
+        batches.append(current)
+    return batches
+
+
+def matching_terms(text: str, terms: list[TranslationTerm]) -> list[TranslationTerm]:
+    folded = text.casefold()
+    return [term for term in terms if term.source.casefold() in folded]
+
+
 T = TypeVar("T")
 
 
@@ -97,6 +131,47 @@ class ContextualTranslationService:
             f"Target language: {request.target_language}\n"
             f"Custom terms: {json.dumps(custom_terms, ensure_ascii=False)}\n"
             f"Transcript sample:\n{source_sample}\n"
+        )
+        if previous_error:
+            prompt += f"Previous validation error to correct: {previous_error}\n"
+        return prompt
+
+    def _batch_prompt(
+        self,
+        request: ContextualTranslationRequest,
+        context: TranslationContext,
+        batches: list[list[TranslationSegmentInput]],
+        batch_index: int,
+        previous_error: str | None = None,
+    ) -> str:
+        batch = batches[batch_index]
+        batch_text = "\n".join(segment.text for segment in batch)
+        terms = [
+            term.model_dump()
+            for term in matching_terms(batch_text, context.terms)
+        ]
+        previous = batches[batch_index - 1][-3:] if batch_index > 0 else []
+        following = (
+            batches[batch_index + 1][:2]
+            if batch_index < len(batches) - 1
+            else []
+        )
+        current = [
+            {"id": segment.id, "source": segment.text}
+            for segment in batch
+        ]
+        prompt = (
+            "Translate every numbered source segment naturally and faithfully. "
+            "Return ONLY a JSON object with a translations array. Each array item "
+            "must contain the original integer id and one non-empty translation. "
+            "Do not merge, split, omit, reorder, or rewrite the IDs.\n"
+            f"Source language: {request.source_language}\n"
+            f"Target language: {request.target_language}\n"
+            f"Theme: {context.theme}\n"
+            f"Terminology for this batch: {json.dumps(terms, ensure_ascii=False)}\n"
+            f"Previous source context: {json.dumps([item.text for item in previous], ensure_ascii=False)}\n"
+            f"Following source context: {json.dumps([item.text for item in following], ensure_ascii=False)}\n"
+            f"Current segments: {json.dumps(current, ensure_ascii=False)}\n"
         )
         if previous_error:
             prompt += f"Previous validation error to correct: {previous_error}\n"
@@ -162,4 +237,113 @@ class ContextualTranslationService:
         return TranslationContext(
             theme=context.theme,
             terms=merge_terms(context.terms, request.custom_terms),
+        )
+
+    @staticmethod
+    def _translation_validator(
+        expected_ids: list[int],
+    ) -> Callable[[Any], list[tuple[int, str]]]:
+        def validate(payload: Any) -> list[tuple[int, str]]:
+            if not isinstance(payload, dict):
+                raise TranslationValidationError(
+                    "translation response must be an object"
+                )
+            raw_translations = payload.get("translations")
+            if not isinstance(raw_translations, list):
+                raise TranslationValidationError(
+                    "translation response must contain a translations list"
+                )
+            values: list[tuple[int, str]] = []
+            for item in raw_translations:
+                if not isinstance(item, dict):
+                    raise TranslationValidationError(
+                        "translation items must be objects"
+                    )
+                identifier = item.get("id")
+                translation = item.get("translation")
+                if (
+                    isinstance(identifier, bool)
+                    or not isinstance(identifier, int)
+                    or not isinstance(translation, str)
+                    or not translation.strip()
+                ):
+                    raise TranslationValidationError(
+                        "translation item has an invalid shape"
+                    )
+                values.append((identifier, translation.strip()))
+            actual_ids = [identifier for identifier, _ in values]
+            if actual_ids != expected_ids:
+                raise TranslationValidationError(
+                    f"translation IDs must exactly match {expected_ids}"
+                )
+            return values
+
+        return validate
+
+    async def _translate_batch(
+        self,
+        request: ContextualTranslationRequest,
+        context: TranslationContext,
+        batches: list[list[TranslationSegmentInput]],
+        batch_index: int,
+    ) -> list[tuple[int, str]]:
+        batch = batches[batch_index]
+        expected_ids = [segment.id for segment in batch]
+        return await self._request_validated(
+            lambda previous_error: self._batch_prompt(
+                request,
+                context,
+                batches,
+                batch_index,
+                previous_error,
+            ),
+            self._translation_validator(expected_ids),
+        )
+
+    async def translate(
+        self,
+        request: ContextualTranslationRequest,
+    ) -> ContextualTranslationResponse:
+        self._validate_request_limits(request)
+        context = await self.extract_context(request)
+        batches = build_batches(
+            request.segments,
+            max_chars=self.limits.batch_chars,
+            max_segments=self.limits.batch_segments,
+        )
+        semaphore = asyncio.Semaphore(self.limits.max_concurrency)
+
+        async def guarded(index: int) -> list[tuple[int, str]]:
+            async with semaphore:
+                return await self._translate_batch(
+                    request,
+                    context,
+                    batches,
+                    index,
+                )
+
+        translated_batches = await asyncio.gather(
+            *(guarded(index) for index in range(len(batches)))
+        )
+        translated_by_id = {
+            identifier: translation
+            for batch in translated_batches
+            for identifier, translation in batch
+        }
+        translated_segments = [
+            TranslatedSegment(
+                id=segment.id,
+                source=segment.text,
+                translation=translated_by_id[segment.id],
+                start=segment.start,
+                end=segment.end,
+            )
+            for segment in request.segments
+        ]
+        return ContextualTranslationResponse(
+            source_language=request.source_language,
+            target_language=request.target_language,
+            theme=context.theme,
+            terminology=context.terms,
+            segments=translated_segments,
         )

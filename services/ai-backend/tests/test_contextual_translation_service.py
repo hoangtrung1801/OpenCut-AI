@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock
 
@@ -5,7 +6,10 @@ from app.models.translation import (
     ContextualTranslationLimits,
     ContextualTranslationRequest,
 )
-from app.services.contextual_translation import ContextualTranslationService
+from app.services.contextual_translation import (
+    ContextualTranslationService,
+    TranslationValidationError,
+)
 
 
 def limits(**overrides):
@@ -74,6 +78,98 @@ class ContextExtractionTests(unittest.IsolatedAsyncioTestCase):
             "Previous validation error",
             backend.generate_json.await_args.kwargs["prompt"],
         )
+
+
+class ContextualTranslationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_translates_batches_with_neighbors_and_matching_terms(self):
+        backend = AsyncMock()
+        backend.generate_json.side_effect = [
+            {
+                "theme": "OpenCut tutorial.",
+                "terms": [
+                    {"source": "OpenCut", "target": "OpenCut", "note": "Product."},
+                    {"source": "khác", "target": "other", "note": "Must not leak."},
+                ],
+            },
+            {"translations": [{"id": 0, "translation": "OpenCut is private."}]},
+            {"translations": [{"id": 1, "translation": "It runs locally."}]},
+        ]
+        service = ContextualTranslationService(
+            backend=backend,
+            limits=limits(batch_chars=1_000, batch_segments=1, max_concurrency=1),
+        )
+
+        result = await service.translate(request())
+
+        self.assertEqual([segment.id for segment in result.segments], [0, 1])
+        self.assertEqual(result.segments[0].start, 0)
+        self.assertEqual(result.segments[1].end, 4)
+        first_batch_prompt = backend.generate_json.await_args_list[1].kwargs["prompt"]
+        self.assertIn("OpenCut", first_batch_prompt)
+        self.assertNotIn('"source": "khác"', first_batch_prompt)
+        self.assertIn("Following source context", first_batch_prompt)
+
+    async def test_retries_when_response_ids_do_not_exactly_match(self):
+        backend = AsyncMock()
+        backend.generate_json.side_effect = [
+            {"theme": "Theme.", "terms": []},
+            {"translations": [{"id": 99, "translation": "Wrong."}]},
+            {
+                "translations": [
+                    {"id": 0, "translation": "One."},
+                    {"id": 1, "translation": "Two."},
+                ]
+            },
+        ]
+        service = ContextualTranslationService(
+            backend=backend,
+            limits=limits(batch_chars=1_000, batch_segments=10),
+        )
+
+        result = await service.translate(request())
+
+        self.assertEqual(
+            [segment.translation for segment in result.segments], ["One.", "Two."]
+        )
+
+    async def test_exhausted_validation_failure_returns_no_partial_result(self):
+        backend = AsyncMock()
+        backend.generate_json.side_effect = [
+            {"theme": "Theme.", "terms": []},
+            {"translations": []},
+            {"translations": []},
+            {"translations": []},
+        ]
+        service = ContextualTranslationService(backend=backend, limits=limits())
+
+        with self.assertRaises(TranslationValidationError):
+            await service.translate(request())
+
+    async def test_concurrent_batches_are_reassembled_in_source_order(self):
+        second_finished = asyncio.Event()
+        context_returned = False
+
+        async def generate_json(*, prompt, **_kwargs):
+            nonlocal context_returned
+            if not context_returned:
+                context_returned = True
+                return {"theme": "Theme.", "terms": []}
+            if '"id": 0' in prompt:
+                await second_finished.wait()
+                return {"translations": [{"id": 0, "translation": "One."}]}
+            second_finished.set()
+            return {"translations": [{"id": 1, "translation": "Two."}]}
+
+        backend = AsyncMock()
+        backend.generate_json.side_effect = generate_json
+        service = ContextualTranslationService(
+            backend=backend,
+            limits=limits(batch_chars=1_000, batch_segments=1, max_concurrency=2),
+        )
+
+        result = await service.translate(request())
+
+        self.assertEqual([segment.id for segment in result.segments], [0, 1])
 
 
 if __name__ == "__main__":
