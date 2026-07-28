@@ -33,11 +33,18 @@ export interface TranslationTerm {
 	note: string;
 }
 
+export interface ContextualTranslationWordInput {
+	word: string;
+	start: number;
+	end: number;
+}
+
 export interface ContextualTranslationSegmentInput {
 	id: number;
 	text: string;
 	start: number;
 	end: number;
+	words?: ContextualTranslationWordInput[];
 }
 
 export interface ContextualTranslationRequest {
@@ -55,12 +62,60 @@ export interface ContextualTranslatedSegment {
 	end: number;
 }
 
+export interface CaptionTranslationInput {
+	id: number;
+	source: string;
+	translation: string;
+	start: number;
+	end: number;
+	words: ContextualTranslationWordInput[];
+}
+
+export interface DisplayCaptionSegment {
+	id: number;
+	parent_id: number;
+	part_index: number;
+	source: string;
+	translation: string;
+	start: number;
+	end: number;
+}
+
+export interface SubtitleVariants {
+	srt: string;
+	vtt: string;
+}
+
+export interface SubtitleDocumentSet {
+	source: SubtitleVariants;
+	translation: SubtitleVariants;
+	source_translation: SubtitleVariants;
+	translation_source: SubtitleVariants;
+}
+
+export interface CaptionPostProcessRequest {
+	source_language: string;
+	target_language: string;
+	segments: CaptionTranslationInput[];
+}
+
+export interface CaptionPostProcessResult {
+	source_language: string;
+	target_language: string;
+	display_segments: DisplayCaptionSegment[];
+	audio_segments: ContextualTranslatedSegment[];
+	subtitles: SubtitleDocumentSet;
+}
+
 export interface ContextualTranslationResult {
 	source_language: string;
 	target_language: string;
 	theme: string;
 	terminology: TranslationTerm[];
 	segments: ContextualTranslatedSegment[];
+	display_segments: DisplayCaptionSegment[];
+	audio_segments: ContextualTranslatedSegment[];
+	subtitles: SubtitleDocumentSet;
 }
 
 // Image generation
