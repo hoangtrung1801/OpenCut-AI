@@ -590,7 +590,7 @@ tqdm==4.70.0
     #   transformers
 transformers==4.57.6
     # via whisperx
-treetable==0.1
+treetable==0.2.6
     # via
     #   -r requirements.txt
     #   dora-search
