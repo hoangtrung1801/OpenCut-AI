@@ -118,8 +118,24 @@ services:
             - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
             - WHISPER_DEVICE=cpu
             - WHISPER_COMPUTE_TYPE=int8
+            - AI_BACKEND_URL=http://ai-backend:8420
+            - ARTIFACT_DIR=/artifacts
+            - DEMUCS_MODEL=htdemucs
+            - DEMUCS_DEVICE=auto
+            - DEMUCS_MP3_BITRATE=192k
+            - WHISPERX_ALIGNMENT_ENABLED=true
+            - WHISPERX_DEVICE=auto
+            - SPACY_ENABLED=true
+            - SPACY_FALLBACK_MODEL=xx_sent_ud_sm
+            - SEMANTIC_SPLIT_ENABLED=true
+            - SEMANTIC_MAX_WORDS=20
+            - SEMANTIC_MIN_WORDS=3
+            - SEMANTIC_WINDOW_WORDS=60
+            - SEMANTIC_MAX_RETRIES=3
+            - SEMANTIC_TIMEOUT_SECONDS=300
         volumes:
             - whisper_models:/root/.cache
+            - whisper_artifacts:/artifacts
         healthcheck:
             test:
                 ["CMD-SHELL", "curl -f http://localhost:8421/health || exit 1"]
@@ -317,6 +333,7 @@ volumes:
     ai_models:
     ai_generated:
     whisper_models:
+    whisper_artifacts:
     tts_models:
     image_models:
     speaker_models:
