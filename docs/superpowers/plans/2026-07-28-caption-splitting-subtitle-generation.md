@@ -13,7 +13,7 @@
 - Follow `docs/superpowers/specs/2026-07-28-caption-splitting-subtitle-generation-design.md`.
 - Default maximum caption length is exactly `32`.
 - Target length multiplier defaults to exactly `1.0`.
-- Split processing allows exactly `3` passes.
+- Split processing uses `3` normal passes and allows up to `8` adaptive passes.
 - Positive gaps strictly smaller than `1.0` second may be closed.
 - Contextual alignment uses the existing configured LLM backend with exactly `2` correction retries after the first attempt.
 - Keep the existing `segments` response field backward compatible.
@@ -138,6 +138,7 @@ Add these settings to `Settings`:
 CONTEXT_TRANSLATION_MAX_CAPTION_CHARS: int = 32
 CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER: float = 1.0
 CONTEXT_TRANSLATION_SPLIT_PASSES: int = 3
+CONTEXT_TRANSLATION_MAX_SPLIT_PASSES: int = 8
 CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS: float = 1.0
 ```
 
@@ -466,16 +467,17 @@ message in retries, never provider exception detail.
 Test that:
 
 - a still-oversized part is split again on the next pass;
-- no more than `split_passes == 3` passes run;
+- high-expansion output can continue through `max_split_passes == 8`;
 - output IDs and `part_index` are sequential;
 - every output range stays within the parent segment; and
-- a caption still oversized after the third pass raises `CaptionPolicyError`
+- a caption still oversized after the eighth pass raises `CaptionPolicyError`
   without returning partial output.
 
 - [ ] **Step 8: Implement recursive processing and gap closing**
 
-Run split/check passes in source order. A split part receives a fresh alignment
-request for its two new source parts. After all parents are complete, flatten,
+Run split/check passes in source order. Start with three passes and continue
+adaptively through eight when any part remains oversized. A split part receives
+a fresh alignment request for its two new source parts. After all parents are complete, flatten,
 renumber, validate, and call `close_short_gaps`.
 
 - [ ] **Step 9: Run post-processor tests**

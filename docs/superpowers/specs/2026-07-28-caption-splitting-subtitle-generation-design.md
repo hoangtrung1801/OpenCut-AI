@@ -209,6 +209,7 @@ The ai-backend will define:
 CONTEXT_TRANSLATION_MAX_CAPTION_CHARS=32
 CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER=1.0
 CONTEXT_TRANSLATION_SPLIT_PASSES=3
+CONTEXT_TRANSLATION_MAX_SPLIT_PASSES=8
 CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS=1.0
 ```
 
@@ -263,11 +264,13 @@ the normalized input.
 ### Recursive passes
 
 Every oversized pair is divided into two parts. The result is checked again and
-can be divided during the next pass. Processing stops when all parts satisfy
-the policy or after three passes.
+can be divided during the next pass. Processing uses three normal passes and
+can adaptively continue up to eight total passes when target-language expansion
+still exceeds the policy.
 
-If a part still exceeds the limit after the third pass, the workflow fails with
-a validation error. It does not return an oversized partial result.
+If a part still exceeds the limit after the eighth pass, or cannot be split into
+two non-empty source parts, the workflow fails with a validation error. It does
+not return an oversized partial result.
 
 ### Word-derived timestamps
 
@@ -443,7 +446,7 @@ Tests will cover:
 - source text that fits exactly at 32 characters;
 - punctuation-preferred and whitespace fallback boundaries;
 - Vietnamese splitting at word boundaries while retaining diacritics;
-- recursive splitting across up to three passes;
+- recursive splitting across three normal and up to eight adaptive passes;
 - single-token character splitting;
 - exact word-derived timestamps;
 - proportional timestamp fallback;
