@@ -27,6 +27,42 @@ export interface TranscriptionResult {
 	separated_audio?: SeparatedAudio;
 }
 
+export interface TranslationTerm {
+	source: string;
+	target: string;
+	note: string;
+}
+
+export interface ContextualTranslationSegmentInput {
+	id: number;
+	text: string;
+	start: number;
+	end: number;
+}
+
+export interface ContextualTranslationRequest {
+	source_language: string;
+	target_language: string;
+	segments: ContextualTranslationSegmentInput[];
+	custom_terms: TranslationTerm[];
+}
+
+export interface ContextualTranslatedSegment {
+	id: number;
+	source: string;
+	translation: string;
+	start: number;
+	end: number;
+}
+
+export interface ContextualTranslationResult {
+	source_language: string;
+	target_language: string;
+	theme: string;
+	terminology: TranslationTerm[];
+	segments: ContextualTranslatedSegment[];
+}
+
 // Image generation
 export interface ImageGenParams {
 	prompt: string;
