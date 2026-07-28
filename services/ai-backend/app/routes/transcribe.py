@@ -5,9 +5,11 @@ Subtitle generation remains local (no heavy dependencies).
 """
 
 import logging
+import uuid
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.config import settings
@@ -15,6 +17,17 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["transcription"])
+
+
+def _rewrite_artifact_urls(payload: dict) -> dict:
+    separated = payload.get("separated_audio")
+    if not isinstance(separated, dict):
+        return payload
+    for key in ("vocals_url", "background_url"):
+        value = separated.get(key)
+        if isinstance(value, str) and value.startswith("/artifacts/"):
+            separated[key] = f"/api/transcribe{value}"
+    return payload
 
 
 async def _proxy_file_upload(
@@ -51,7 +64,7 @@ async def transcribe(
             file,
             extra_form={"language": language} if language else {},
         )
-        return resp.json()
+        return _rewrite_artifact_urls(resp.json())
     except httpx.HTTPStatusError as e:
         detail = e.response.text if e.response else str(e)
         raise HTTPException(status_code=e.response.status_code, detail=detail)
@@ -64,6 +77,56 @@ async def transcribe(
     except Exception:
         logger.exception("Transcription proxy failed")
         raise HTTPException(status_code=500, detail="Transcription failed.")
+
+
+@router.get("/transcribe/artifacts/{artifact_id}/{stem}")
+async def proxy_artifact(artifact_id: str, stem: str) -> StreamingResponse:
+    """Stream Whisper artifacts through the same-origin AI backend."""
+    try:
+        parsed = uuid.UUID(artifact_id)
+        if str(parsed) != artifact_id:
+            raise ValueError
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid artifact id.") from exc
+    if stem not in {"vocals", "background"}:
+        raise HTTPException(status_code=422, detail="Unsupported artifact stem.")
+
+    client = httpx.AsyncClient(timeout=300)
+    stream_context = client.stream(
+        "GET",
+        f"{settings.WHISPER_SERVICE_URL}/artifacts/{artifact_id}/{stem}",
+    )
+    try:
+        response = await stream_context.__aenter__()
+        if response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Artifact not found.")
+        response.raise_for_status()
+    except httpx.ConnectError as exc:
+        await client.aclose()
+        raise HTTPException(status_code=503, detail="Whisper service is not available.") from exc
+    except httpx.HTTPStatusError as exc:
+        await client.aclose()
+        raise HTTPException(status_code=exc.response.status_code, detail="Artifact download failed.") from exc
+    except Exception:
+        await client.aclose()
+        raise
+
+    headers = {
+        key: value
+        for key, value in response.headers.items()
+        if key.lower() in {"content-length", "content-type", "content-disposition"}
+    }
+    headers.setdefault("content-type", "audio/mpeg")
+
+    async def iterator():
+        try:
+            async for chunk in response.aiter_bytes():
+                yield chunk
+        finally:
+            await stream_context.__aexit__(None, None, None)
+            await client.aclose()
+
+    return StreamingResponse(iterator(), media_type=headers.pop("content-type", "audio/mpeg"), headers=headers)
 
 
 # ---------------------------------------------------------------------------

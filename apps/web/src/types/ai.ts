@@ -15,10 +15,16 @@ export interface TranscriptionSegment {
 	speaker?: string;
 }
 
+export interface SeparatedAudio {
+	vocals_url: string;
+	background_url: string;
+}
+
 export interface TranscriptionResult {
 	segments: TranscriptionSegment[];
 	language: string;
 	duration: number;
+	separated_audio?: SeparatedAudio;
 }
 
 // Image generation
