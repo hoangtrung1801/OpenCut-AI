@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/select";
 import { useState, useRef } from "react";
 import { useEditor } from "@/hooks/use-editor";
-import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
 import { WHISPER_LANGUAGES } from "@/constants/transcription-constants";
 import { LANGUAGES } from "@/constants/language-constants";
 import {
@@ -27,16 +26,15 @@ import { Spinner } from "@/components/ui/spinner";
 import { Label } from "@/components/ui/label";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { buildCaptionChunks } from "@/lib/transcription/caption";
+import { createSubtitleTrack } from "@/lib/transcription/subtitle-track";
+import { getTranslationControlState } from "@/lib/transcription/translation-control";
+import { shouldUseSarvamTranslation } from "@/lib/transcription/translation-provider";
+import { invokeAction } from "@/lib/actions";
 import { getElementsAtTime, hasMediaId } from "@/lib/timeline";
 import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
 import type { TimelineElement } from "@/types/timeline";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
-
-interface SubtitleTrackInfo {
-	trackId: string;
-	language: string;
-}
 
 export function Captions() {
 	const [selectedEngine, setSelectedEngine] = useState<TranscriptionEngine>("whisper");
@@ -45,13 +43,20 @@ export function Captions() {
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [processingStep, setProcessingStep] = useState("");
 	const [error, setError] = useState<string | null>(null);
-	const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrackInfo[]>([]);
 	const [translateLanguage, setTranslateLanguage] = useState("es");
-	const [isTranslating, setIsTranslating] = useState(false);
-	const [translatingStep, setTranslatingStep] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
 	const segments = useTranscriptStore((s) => s.segments);
+	const subtitleTracks = useTranscriptStore((s) => s.subtitleTracks);
+	const setSubtitleTracks = useTranscriptStore((s) => s.setSubtitleTracks);
+	const addSubtitleTrackState = useTranscriptStore((s) => s.addSubtitleTrack);
+	const removeSubtitleTrackState = useTranscriptStore((s) => s.removeSubtitleTrack);
+	const backgroundTasks = useBackgroundTasksStore((s) => s.tasks);
 	const editor = useEditor();
+	const translationTask = [...backgroundTasks]
+		.reverse()
+		.find((task) => task.type === "translation" && task.status === "running");
+	const isTranslating = translationTask !== undefined;
+	const translatingStep = translationTask?.progress ?? "";
 
 	// Determine which languages to show based on engine
 	const availableLanguages = selectedEngine === "sarvam"
@@ -66,6 +71,12 @@ export function Captions() {
 	const activeSubtitleTracks = subtitleTracks.filter((t) =>
 		timelineTrackIds.has(t.trackId),
 	);
+	const translationControl = getTranslationControlState({
+		segmentCount: segments.length,
+		targetLanguage: translateLanguage,
+		activeLanguages: activeSubtitleTracks.map((track) => track.language),
+		translating: isTranslating,
+	});
 
 	// Sync state if tracks were removed externally
 	if (activeSubtitleTracks.length !== subtitleTracks.length) {
@@ -402,74 +413,6 @@ export function Captions() {
 		}
 	};
 
-	const addSubtitleTrack = ({
-		subtitleSegments,
-		languageLabel,
-		yOffset = 0.38,
-	}: {
-		subtitleSegments: {
-			text: string;
-			start: number;
-			end: number;
-			words?: { word: string; start: number; end: number }[];
-		}[];
-		languageLabel: string;
-		yOffset?: number;
-	}) => {
-		const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-		editor.timeline.renameTrack({
-			trackId,
-			name: `Subs: ${languageLabel}`,
-		});
-		const canvasSize = editor.project.getActive().settings.canvasSize;
-		const subtitleY = canvasSize.height * yOffset;
-
-		for (let i = 0; i < subtitleSegments.length; i++) {
-			const seg = subtitleSegments[i];
-
-			// Build word timings relative to the element's local time (0-based)
-			const wordTimings = seg.words?.map((w) => ({
-				word: w.word,
-				start: w.start - seg.start,
-				end: w.end - seg.start,
-			}));
-
-			editor.timeline.insertElement({
-				placement: { mode: "explicit", trackId },
-				element: {
-					...DEFAULT_TEXT_ELEMENT,
-					name: `${languageLabel} ${i + 1}`,
-					content: seg.text,
-					duration: seg.end - seg.start,
-					startTime: seg.start,
-					fontSize: 4,
-					fontWeight: "bold",
-					color: "#ffffff",
-					highlightColor: "#FACC15",
-					...(wordTimings && wordTimings.length > 0 ? { wordTimings } : {}),
-					textAlign: "center",
-					background: {
-						enabled: true,
-						color: "#000000",
-						cornerRadius: 4,
-						paddingX: 12,
-						paddingY: 6,
-						offsetX: 0,
-						offsetY: 0,
-					},
-					opacity: 0.95,
-					transform: {
-						scale: 1,
-						position: { x: 0, y: subtitleY },
-						rotate: 0,
-					},
-				},
-			});
-		}
-
-		return trackId;
-	};
-
 	const handleAddSubtitles = () => {
 		const currentSegments = useTranscriptStore.getState().segments;
 		if (currentSegments.length === 0) return;
@@ -483,195 +426,34 @@ export function Captions() {
 			})),
 		});
 
-		const trackId = addSubtitleTrack({
-			subtitleSegments: chunks.map((chunk) => ({
+		const trackId = createSubtitleTrack(editor, {
+			segments: chunks.map((chunk) => ({
 				text: chunk.text,
 				start: chunk.startTime,
 				end: chunk.startTime + chunk.duration,
 				words: chunk.words,
 			})),
 			languageLabel: "Subtitle",
+			yOffset: 0.38,
 		});
 
-		setSubtitleTracks((prev) => [...prev, { trackId, language: "original" }]);
+		addSubtitleTrackState({ trackId, language: "original" });
 		toast.success("Subtitles added with word highlighting");
 	};
 
-	/** Check if we should use Sarvam for translation (Indian language pair).
-	 *  Requires at least one side to be an Indian language (not just "en"),
-	 *  AND the other side must also be Sarvam-supported.
-	 */
-	const shouldUseSarvamTranslation = (sourceLang: string, targetLang: string): boolean => {
-		const sourceIsSarvam = SARVAM_SUPPORTED_CODES.has(sourceLang);
-		const targetIsSarvam = SARVAM_SUPPORTED_CODES.has(targetLang);
-		// Both must be Sarvam-supported, and at least one must be a non-English Indian language
-		const sourceIsIndian = sourceIsSarvam && sourceLang !== "en";
-		const targetIsIndian = targetIsSarvam && targetLang !== "en";
-		return (sourceIsIndian || targetIsIndian) && sourceIsSarvam && targetIsSarvam;
-	};
 
-	const handleTranslateAndAdd = async () => {
-		const currentSegments = useTranscriptStore.getState().segments;
-		if (currentSegments.length === 0) return;
-
-		const targetLang = LANGUAGES.find((l) => l.code === translateLanguage);
+	const handleTranslateAndAdd = () => {
+		const targetLang = LANGUAGES.find((language) => language.code === translateLanguage);
 		if (!targetLang) return;
-
-		const transcriptLang = useTranscriptStore.getState().language;
-		const useSarvam = shouldUseSarvamTranslation(transcriptLang, translateLanguage);
-
-		const taskId = `translation-${targetLang.code}-${Date.now()}`;
-		const bgTasks = useBackgroundTasksStore.getState();
-
-		setIsTranslating(true);
 		setError(null);
-
-		const translationEngine = useSarvam ? "Sarvam AI" : "Local LLM";
-
-		bgTasks.addTask({
-			id: taskId,
-			type: "translation",
-			label: `${targetLang.name} translation (${translationEngine})`,
-			progress: "Starting...",
-		});
-
-		try {
-			const translatedSegments: { text: string; start: number; end: number }[] = [];
-
-			if (useSarvam) {
-				// Use Sarvam translation API — translate segment by segment
-				const sourceSarvamCode = SARVAM_LANGUAGE_MAP[transcriptLang] || `${transcriptLang}-IN`;
-				const targetSarvamCode = SARVAM_LANGUAGE_MAP[translateLanguage] || `${translateLanguage}-IN`;
-
-				for (let i = 0; i < currentSegments.length; i++) {
-					const seg = currentSegments[i];
-					const stepText = `Translating to ${targetLang.name} via Sarvam... (${i + 1}/${currentSegments.length})`;
-					setTranslatingStep(stepText);
-					bgTasks.updateTask(taskId, { progress: stepText });
-
-					try {
-						const result = await aiClient.sarvamTranslate(
-							seg.text,
-							sourceSarvamCode,
-							targetSarvamCode,
-						);
-						translatedSegments.push({
-							text: result.translated_text || seg.text,
-							start: seg.start,
-							end: seg.end,
-						});
-					} catch (translationErr) {
-						console.warn(`Sarvam translation failed for segment ${i}, using original:`, translationErr);
-						translatedSegments.push({
-							text: seg.text,
-							start: seg.start,
-							end: seg.end,
-						});
-					}
-				}
-			} else {
-				// Use local LLM (original approach)
-				const BATCH_SIZE = 5;
-
-				for (let i = 0; i < currentSegments.length; i += BATCH_SIZE) {
-					const batch = currentSegments.slice(i, i + BATCH_SIZE);
-					const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
-					const totalBatches = Math.ceil(currentSegments.length / BATCH_SIZE);
-					const stepText = `Translating to ${targetLang.name}... (${batchIndex}/${totalBatches})`;
-					setTranslatingStep(stepText);
-					bgTasks.updateTask(taskId, { progress: stepText });
-
-					// Send batch as numbered lines for reliable parsing
-					const numberedLines = batch
-						.map((seg, idx) => `${idx + 1}. ${seg.text}`)
-						.join("\n");
-
-					const translated = await aiClient.translateText(
-						numberedLines,
-						targetLang.name,
-					);
-
-					// Parse response — expect numbered lines back
-					const lines = translated
-						.split("\n")
-						.map((line) => line.replace(/^\d+\.\s*/, "").trim())
-						.filter((line) => line.length > 0);
-
-					for (let j = 0; j < batch.length; j++) {
-						translatedSegments.push({
-							text: lines[j] || batch[j].text,
-							start: batch[j].start,
-							end: batch[j].end,
-						});
-					}
-				}
-			}
-
-			// Place translated subtitles slightly above the original ones
-			const yOffset = activeSubtitleTracks.length > 0 ? 0.28 : 0.38;
-			const translatedChunks = buildCaptionChunks({
-				segments: translatedSegments,
-			});
-			const trackId = addSubtitleTrack({
-				subtitleSegments: translatedChunks.map((chunk) => ({
-					text: chunk.text,
-					start: chunk.startTime,
-					end: chunk.startTime + chunk.duration,
-				})),
-				languageLabel: `${targetLang.name}`,
-				yOffset,
-			});
-
-			setSubtitleTracks((prev) => [
-				...prev,
-				{ trackId, language: targetLang.code },
-			]);
-
-			// Store translation in transcript store for the tabbed panel
-			useTranscriptStore.getState().addTranslation({
-				languageCode: targetLang.code,
-				languageName: targetLang.name,
-				segments: translatedSegments.map((seg, idx) => ({
-					id: idx,
-					text: seg.text,
-					start: seg.start,
-					end: seg.end,
-					words: [],
-				})),
-			});
-
-			bgTasks.updateTask(taskId, {
-				status: "completed",
-				progress: `${translatedSegments.length} segments`,
-				completedAt: Date.now(),
-			});
-		} catch (err) {
-			console.error("Translation failed:", err);
-			const message =
-				err instanceof Error ? err.message : "Translation failed";
-			if (
-				message.includes("Cannot connect") ||
-				message.includes("connection_refused")
-			) {
-				setError(
-					"Cannot connect to AI backend. Make sure it is running and an LLM model is loaded.",
-				);
-			} else if (message.includes("Sarvam API key")) {
-				setError("Sarvam API key is not configured. Add OPENCUTAI_SARVAM_API_KEY to your environment.");
-			} else if (message.includes("Smallest AI API key")) {
-				setError("Smallest AI API key is not configured. Add it in Settings > API Keys, or set OPENCUTAI_SMALLEST_API_KEY in your environment.");
-			} else {
-				setError(message);
-			}
-			bgTasks.updateTask(taskId, {
-				status: "error",
-				error: message,
-				completedAt: Date.now(),
-			});
-		} finally {
-			setIsTranslating(false);
-			setTranslatingStep("");
-		}
+		invokeAction(
+			"translate-captions",
+			{
+				targetLanguage: targetLang.code,
+				targetLanguageName: targetLang.name,
+			},
+			"mouseclick",
+		);
 	};
 
 	const handleRemoveSubtitles = () => {
@@ -692,7 +474,7 @@ export function Captions() {
 		} catch {
 			// Already removed
 		}
-		setSubtitleTracks((prev) => prev.filter((t) => t.trackId !== trackId));
+		removeSubtitleTrackState(trackId);
 		toast.success("Subtitle track removed");
 	};
 
@@ -938,11 +720,11 @@ export function Captions() {
 								</Select>
 								<Button
 									onClick={handleTranslateAndAdd}
-									disabled={isTranslating}
+									disabled={translationControl.disabled}
 									className="shrink-0"
 								>
 									{isTranslating && <Spinner className="mr-1" />}
-									{isTranslating ? "..." : "Add"}
+									{isTranslating ? "Translating…" : "Translate & add"}
 								</Button>
 							</div>
 							{isTranslating && translatingStep && (
