@@ -2,23 +2,94 @@
 
 import math
 
+from app.models.translation import (
+    DisplayCaptionSegment,
+    SubtitleDocumentSet,
+    SubtitleVariants,
+)
+
+
+def _total_milliseconds(seconds: float) -> int:
+    return max(0, round(float(seconds) * 1000))
+
 
 def _format_srt_time(seconds: float) -> str:
     """Format seconds as SRT timestamp: HH:MM:SS,mmm."""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds - math.floor(seconds)) * 1000))
+    total_ms = _total_milliseconds(seconds)
+    h, remainder = divmod(total_ms, 3_600_000)
+    m, remainder = divmod(remainder, 60_000)
+    s, ms = divmod(remainder, 1_000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
 def _format_vtt_time(seconds: float) -> str:
     """Format seconds as WebVTT timestamp: HH:MM:SS.mmm."""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int(round((seconds - math.floor(seconds)) * 1000))
+    total_ms = _total_milliseconds(seconds)
+    h, remainder = divmod(total_ms, 3_600_000)
+    m, remainder = divmod(remainder, 60_000)
+    s, ms = divmod(remainder, 1_000)
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+
+def _display_text(segment: DisplayCaptionSegment, order: str) -> str:
+    if order == "source":
+        return segment.source
+    if order == "translation":
+        return segment.translation
+    if order == "source_translation":
+        return f"{segment.source}\n{segment.translation}"
+    if order == "translation_source":
+        return f"{segment.translation}\n{segment.source}"
+    raise ValueError(f"unsupported subtitle text order: {order}")
+
+
+def _display_to_srt(segments: list[DisplayCaptionSegment], order: str) -> str:
+    entries: list[str] = []
+    for index, segment in enumerate(segments, start=1):
+        entries.append(
+            f"{index}\n"
+            f"{_format_srt_time(segment.start)} --> {_format_srt_time(segment.end)}\n"
+            f"{_display_text(segment, order)}"
+        )
+    return "\n\n".join(entries) + ("\n" if entries else "")
+
+
+def _display_to_vtt(segments: list[DisplayCaptionSegment], order: str) -> str:
+    lines: list[str] = ["WEBVTT", ""]
+    for segment in segments:
+        lines.extend(
+            [
+                f"{_format_vtt_time(segment.start)} --> {_format_vtt_time(segment.end)}",
+                _display_text(segment, order),
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def build_subtitle_documents(
+    segments: list[DisplayCaptionSegment],
+) -> SubtitleDocumentSet:
+    """Serialize final display cues without performing another line wrap."""
+    orders = {
+        "source": SubtitleVariants(
+            srt=_display_to_srt(segments, "source"),
+            vtt=_display_to_vtt(segments, "source"),
+        ),
+        "translation": SubtitleVariants(
+            srt=_display_to_srt(segments, "translation"),
+            vtt=_display_to_vtt(segments, "translation"),
+        ),
+        "source_translation": SubtitleVariants(
+            srt=_display_to_srt(segments, "source_translation"),
+            vtt=_display_to_vtt(segments, "source_translation"),
+        ),
+        "translation_source": SubtitleVariants(
+            srt=_display_to_srt(segments, "translation_source"),
+            vtt=_display_to_vtt(segments, "translation_source"),
+        ),
+    }
+    return SubtitleDocumentSet(**orders)
 
 
 def _split_text(text: str, max_chars: int) -> list[str]:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.models.translation import (
+    CaptionPostProcessResponse,
     CaptionPostProcessRequest,
     DisplayCaptionSegment,
     TranslatedSegment,
@@ -19,6 +20,7 @@ from app.services.caption_splitter import (
     requires_split,
     split_timed_source,
 )
+from app.services.subtitle_service import build_subtitle_documents
 
 
 class CaptionPostProcessingError(Exception):
@@ -251,4 +253,17 @@ class CaptionPostProcessor:
                 threshold=self.limits.gap_close_seconds,
             ),
             audio_segments=audio_segments,
+        )
+
+    async def process(
+        self,
+        request: CaptionPostProcessRequest,
+    ) -> CaptionPostProcessResponse:
+        processed = await self.process_pairs(request)
+        return CaptionPostProcessResponse(
+            source_language=request.source_language,
+            target_language=request.target_language,
+            display_segments=processed.display_segments,
+            audio_segments=processed.audio_segments,
+            subtitles=build_subtitle_documents(processed.display_segments),
         )

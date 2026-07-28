@@ -65,6 +65,14 @@ class CaptionPostProcessorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.audio_segments[0].translation, "Hello.")
         backend.generate_json.assert_not_awaited()
 
+    async def test_process_adds_all_subtitle_variants(self):
+        processor = CaptionPostProcessor(backend=AsyncMock(), limits=limits())
+
+        result = await processor.process(postprocess_request())
+
+        self.assertIn("Hello.", result.subtitles.translation.srt)
+        self.assertIn("WEBVTT", result.subtitles.source.vtt)
+
     async def test_aligns_split_translation_and_preserves_audio_pair(self):
         backend = AsyncMock()
         backend.generate_json.return_value = {
