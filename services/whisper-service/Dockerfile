@@ -10,7 +10,11 @@ WORKDIR /app
 
 COPY requirements.txt requirements.lock* requirements-demucs.txt ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system -r requirements.txt
+    if [ -f requirements.lock ]; then \
+      uv pip install --system -r requirements.lock; \
+    else \
+      uv pip install --system -r requirements.txt; \
+    fi
 
 # Demucs' historical dependency metadata conflicts with the WhisperX/Torch stack;
 # install the pinned source without allowing it to downgrade those packages.
