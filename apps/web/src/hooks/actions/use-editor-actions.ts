@@ -11,6 +11,7 @@ import { useAIStore } from "@/stores/ai-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import {
 	captureTranscriptSnapshot,
 	hasTranscriptChanged,
@@ -18,6 +19,12 @@ import {
 } from "@/lib/commands/transcript";
 import { toast } from "sonner";
 import { useVersionStore } from "@/stores/version-store";
+import { aiClient } from "@/lib/ai-client";
+import { createSubtitleTrack } from "@/lib/transcription/subtitle-track";
+import {
+	sarvamLanguageCode,
+} from "@/lib/transcription/translation-provider";
+import { translateAndAddCaptions } from "@/lib/transcription/translate-captions";
 
 export function useEditorActions() {
 	const editor = useEditor();
@@ -32,6 +39,59 @@ export function useEditorActions() {
 	const toggleCommandPanel = useAIStore((s) => s.toggleCommandPanel);
 	const requestFindSimilar = useSearchStore((s) => s.requestFindSimilar);
 	const setActiveTab = useAssetsPanelStore((s) => s.setActiveTab);
+	const addTranslation = useTranscriptStore((s) => s.addTranslation);
+	const addSubtitleTrack = useTranscriptStore((s) => s.addSubtitleTrack);
+	const subtitleTracks = useTranscriptStore((s) => s.subtitleTracks);
+	const addBackgroundTask = useBackgroundTasksStore((s) => s.addTask);
+	const updateBackgroundTask = useBackgroundTasksStore((s) => s.updateTask);
+
+	useActionHandler(
+		"translate-captions",
+		(args) => {
+			if (!args) return;
+			void translateAndAddCaptions(args, {
+				getTranscript: () => {
+					const transcript = useTranscriptStore.getState();
+					return {
+						language: transcript.language,
+						segments: transcript.segments,
+					};
+				},
+				translateContextual: (request) => aiClient.translateTranscript(request),
+				translateSarvam: async (segments, sourceLanguage, targetLanguage) => {
+					const translated = [];
+					for (const segment of segments) {
+						let text = segment.text;
+						try {
+							const result = await aiClient.sarvamTranslate(
+								segment.text,
+								sarvamLanguageCode(sourceLanguage),
+								sarvamLanguageCode(targetLanguage),
+							);
+							text = result.translated_text || segment.text;
+						} catch (error) {
+							console.warn("Sarvam translation failed for segment:", error);
+						}
+						translated.push({
+							id: segment.id,
+							source: segment.text,
+							translation: text,
+							start: segment.start,
+							end: segment.end,
+						});
+					}
+					return translated;
+				},
+				addTask: addBackgroundTask,
+				updateTask: updateBackgroundTask,
+				storeTranslation: addTranslation,
+				createTrack: (input) => createSubtitleTrack(editor, input),
+				storeTrack: addSubtitleTrack,
+				hasExistingSubtitleTrack: () => subtitleTracks.length > 0,
+			}).catch(() => undefined);
+		},
+		undefined,
+	);
 
 	useActionHandler(
 		"toggle-play",

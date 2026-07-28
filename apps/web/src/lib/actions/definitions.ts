@@ -232,6 +232,14 @@ export const ACTIONS = {
 		category: "ai",
 		defaultShortcuts: ["ctrl+shift+e"],
 	},
+	"translate-captions": {
+		description: "Translate transcript and add subtitle track",
+		category: "ai",
+		args: {
+			targetLanguage: "string",
+			targetLanguageName: "string",
+		},
+	},
 	"add-transition": {
 		description: "Add transition between selected clips",
 		category: "editing",

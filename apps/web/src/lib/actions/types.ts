@@ -8,6 +8,10 @@ export type TActionArgsMap = {
 	"seek-backward": { seconds: number } | undefined;
 	"jump-forward": { seconds: number } | undefined;
 	"jump-backward": { seconds: number } | undefined;
+	"translate-captions": {
+		targetLanguage: string;
+		targetLanguageName: string;
+	} | undefined;
 };
 
 type TKeysWithValueUndefined<T> = {

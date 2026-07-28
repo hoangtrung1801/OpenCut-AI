@@ -13,6 +13,11 @@ export interface TranslatedTranscript {
 	segments: TranscriptionSegment[];
 }
 
+export interface SubtitleTrackInfo {
+	trackId: string;
+	language: string;
+}
+
 interface TranscriptState {
 	segments: TranscriptionSegment[];
 	isTranscribing: boolean;
@@ -24,6 +29,7 @@ interface TranscriptState {
 	silences: SilenceRegion[];
 	chapters: Chapter[];
 	translations: TranslatedTranscript[];
+	subtitleTracks: SubtitleTrackInfo[];
 	/** Map from raw speaker ID (e.g. "SPEAKER_A") to user-defined name */
 	speakerNames: Record<string, string>;
 	/** Map from speaker ID to visual position ("left" | "right" | "center") */
@@ -53,6 +59,9 @@ interface TranscriptState {
 	setChapters: (chapters: Chapter[]) => void;
 	addTranslation: (translation: TranslatedTranscript) => void;
 	removeTranslation: (languageCode: string) => void;
+	setSubtitleTracks: (tracks: SubtitleTrackInfo[]) => void;
+	addSubtitleTrack: (track: SubtitleTrackInfo) => void;
+	removeSubtitleTrack: (trackId: string) => void;
 	setSpeakerName: (speakerId: string, name: string) => void;
 	setSpeakerNames: (names: Record<string, string>) => void;
 	setSpeakerPosition: (speakerId: string, position: "left" | "right" | "center") => void;
@@ -75,6 +84,7 @@ const initialState = {
 	silences: [] as SilenceRegion[],
 	chapters: [] as Chapter[],
 	translations: [] as TranslatedTranscript[],
+	subtitleTracks: [] as SubtitleTrackInfo[],
 	speakerNames: {} as Record<string, string>,
 	speakerPositions: {} as Record<string, "left" | "right" | "center">,
 	emotions: [] as EmotionSegment[],
@@ -171,6 +181,25 @@ export const useTranscriptStore = create<TranscriptState>()((set, get) => ({
 		set((state) => ({
 			translations: state.translations.filter(
 				(t) => t.languageCode !== languageCode,
+			),
+		})),
+
+	setSubtitleTracks: (subtitleTracks) => set({ subtitleTracks }),
+
+	addSubtitleTrack: (track) =>
+		set((state) => ({
+			subtitleTracks: [
+				...state.subtitleTracks.filter(
+					(existing) => existing.language !== track.language,
+				),
+				track,
+			],
+		})),
+
+	removeSubtitleTrack: (trackId) =>
+		set((state) => ({
+			subtitleTracks: state.subtitleTracks.filter(
+				(track) => track.trackId !== trackId,
 			),
 		})),
 
