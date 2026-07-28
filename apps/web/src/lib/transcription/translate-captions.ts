@@ -2,9 +2,12 @@ import type {
 	BackgroundTask,
 } from "@/stores/background-tasks-store";
 import type {
+	CaptionPostProcessRequest,
+	CaptionPostProcessResult,
 	ContextualTranslationRequest,
 	ContextualTranslationResult,
 	ContextualTranslatedSegment,
+	DisplayCaptionSegment,
 	TranscriptionSegment,
 } from "@/types/ai";
 import type { CaptionSourceSegment } from "@/lib/transcription/caption";
@@ -31,6 +34,9 @@ export interface CaptionTranslationDependencies {
 		sourceLanguage: string,
 		targetLanguage: string,
 	) => Promise<ContextualTranslatedSegment[]>;
+	postProcessCaptions: (
+		request: CaptionPostProcessRequest,
+	) => Promise<CaptionPostProcessResult>;
 	addTask: (task: Omit<BackgroundTask, "startedAt" | "status">) => void;
 	updateTask: (
 		id: string,
@@ -59,13 +65,14 @@ function contextualRequest(
 			text: segment.text,
 			start: segment.start,
 			end: segment.end,
+			words: segment.words.map(({ word, start, end }) => ({ word, start, end })),
 		})),
 		custom_terms: [],
 	};
 }
 
-function translatedSegments(
-	segments: ContextualTranslatedSegment[],
+function displaySegments(
+	segments: DisplayCaptionSegment[],
 ): CaptionSourceSegment[] {
 	return segments.map((segment) => ({
 		text: segment.translation,
@@ -75,17 +82,41 @@ function translatedSegments(
 	}));
 }
 
+function postProcessRequest(
+	snapshot: TranscriptSnapshot,
+	targetLanguage: string,
+	segments: ContextualTranslatedSegment[],
+): CaptionPostProcessRequest {
+	const sourceById = new Map(snapshot.segments.map((segment) => [segment.id, segment]));
+	return {
+		source_language: snapshot.language,
+		target_language: targetLanguage,
+		segments: segments.map((segment) => ({
+			id: segment.id,
+			source: segment.source,
+			translation: segment.translation,
+			start: segment.start,
+			end: segment.end,
+			words: (sourceById.get(segment.id)?.words ?? []).map(({ word, start, end }) => ({
+				word,
+				start,
+				end,
+			})),
+		})),
+	};
+}
+
 function transcriptTranslation(
 	targetLanguage: string,
 	targetLanguageName: string,
-	segments: CaptionSourceSegment[],
+	segments: ContextualTranslatedSegment[],
 ): TranslatedTranscript {
 	return {
 		languageCode: targetLanguage,
 		languageName: targetLanguageName,
-		segments: segments.map((segment, index) => ({
-			id: index,
-			text: segment.text,
+		segments: segments.map((segment) => ({
+			id: segment.id,
+			text: segment.translation,
 			start: segment.start,
 			end: segment.end,
 			words: [],
@@ -114,18 +145,23 @@ export async function translateAndAddCaptions(
 	});
 
 	try {
-		let translated: CaptionSourceSegment[];
+		let display: CaptionSourceSegment[];
+		let audio: ContextualTranslatedSegment[];
 		if (shouldUseSarvamTranslation(snapshot.language, args.targetLanguage)) {
 			dependencies.updateTask(taskId, {
 				progress: `Translating to ${args.targetLanguageName} via Sarvam...`,
 			});
-			translated = translatedSegments(
-				await dependencies.translateSarvam(
+			const originalTranslation = await dependencies.translateSarvam(
 					snapshot.segments,
 					snapshot.language,
 					args.targetLanguage,
-				),
 			);
+			dependencies.updateTask(taskId, { progress: "Splitting captions…" });
+			const processed = await dependencies.postProcessCaptions(
+				postProcessRequest(snapshot, args.targetLanguage, originalTranslation),
+			);
+			display = displaySegments(processed.display_segments);
+			audio = processed.audio_segments;
 		} else {
 			dependencies.updateTask(taskId, {
 				progress: "Translating with video context…",
@@ -133,7 +169,8 @@ export async function translateAndAddCaptions(
 			const result = await dependencies.translateContextual(
 				contextualRequest(snapshot, args.targetLanguage),
 			);
-			translated = translatedSegments(result.segments);
+			display = displaySegments(result.display_segments);
+			audio = result.audio_segments;
 		}
 
 		dependencies.updateTask(taskId, { progress: "Adding subtitle track…" });
@@ -141,11 +178,11 @@ export async function translateAndAddCaptions(
 			transcriptTranslation(
 				args.targetLanguage,
 				args.targetLanguageName,
-				translated,
+				audio,
 			),
 		);
 		const trackId = dependencies.createTrack({
-			segments: translated,
+			segments: display,
 			languageLabel: args.targetLanguageName,
 			yOffset: dependencies.hasExistingSubtitleTrack?.() ? 0.28 : 0.38,
 		});
@@ -155,7 +192,7 @@ export async function translateAndAddCaptions(
 		});
 		dependencies.updateTask(taskId, {
 			status: "completed",
-			progress: `${translated.length} segments`,
+			progress: `${display.length} segments`,
 			completedAt: Date.now(),
 		});
 		return trackId;

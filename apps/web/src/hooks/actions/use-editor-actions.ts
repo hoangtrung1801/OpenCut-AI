@@ -58,6 +58,7 @@ export function useEditorActions() {
 					};
 				},
 				translateContextual: (request) => aiClient.translateTranscript(request),
+				postProcessCaptions: (request) => aiClient.postProcessCaptions(request),
 				translateSarvam: async (segments, sourceLanguage, targetLanguage) => {
 					const translated = [];
 					for (const segment of segments) {

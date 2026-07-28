@@ -2,6 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { buildCaptionChunks } from "@/lib/transcription/caption";
 
 describe("buildCaptionChunks", () => {
+	test("uses a 32-character default caption line limit", () => {
+		const chunks = buildCaptionChunks({
+			segments: [{ text: "One two three four five six seven", start: 0, end: 4 }],
+		});
+
+		expect(chunks.map((chunk) => chunk.text)).toEqual([
+			"One two three four five six",
+			"seven",
+		]);
+	});
+
 	test("short segment with word timings produces a single unchanged chunk", () => {
 		const chunks = buildCaptionChunks({
 			segments: [
