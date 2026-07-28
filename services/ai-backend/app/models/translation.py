@@ -15,18 +15,40 @@ class TranslationTerm(BaseModel):
     note: str = Field(..., min_length=1, max_length=200)
 
 
+class TranslationWordInput(BaseModel):
+    word: str = Field(..., min_length=1, max_length=1_000)
+    start: float = Field(..., ge=0, allow_inf_nan=False)
+    end: float = Field(..., ge=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "TranslationWordInput":
+        if not isfinite(self.start) or not isfinite(self.end):
+            raise ValueError("word timestamps must be finite")
+        if self.end <= self.start:
+            raise ValueError("word end must be greater than word start")
+        return self
+
+
 class TranslationSegmentInput(BaseModel):
     id: int = Field(..., ge=0)
     text: str = Field(..., min_length=1, max_length=20_000)
     start: float = Field(..., ge=0, allow_inf_nan=False)
     end: float = Field(..., ge=0, allow_inf_nan=False)
+    words: list[TranslationWordInput] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "TranslationSegmentInput":
         if not isfinite(self.start) or not isfinite(self.end):
             raise ValueError("segment timestamps must be finite")
-        if self.end < self.start:
-            raise ValueError("segment end must be greater than or equal to start")
+        if self.end <= self.start:
+            raise ValueError("segment end must be greater than segment start")
+        previous_end = self.start
+        for word in self.words:
+            if word.start < self.start or word.end > self.end:
+                raise ValueError("word timestamps must stay within the segment")
+            if word.start < previous_end:
+                raise ValueError("word timestamps must be ordered and non-overlapping")
+            previous_end = word.end
         return self
 
 
@@ -53,6 +75,83 @@ class TranslatedSegment(BaseModel):
     start: float = Field(..., ge=0, allow_inf_nan=False)
     end: float = Field(..., ge=0, allow_inf_nan=False)
 
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "TranslatedSegment":
+        if not isfinite(self.start) or not isfinite(self.end):
+            raise ValueError("translated timestamps must be finite")
+        if self.end <= self.start:
+            raise ValueError("translated segment end must be greater than start")
+        return self
+
+
+class CaptionTranslationInput(BaseModel):
+    id: int = Field(..., ge=0)
+    source: str = Field(..., min_length=1, max_length=20_000)
+    translation: str = Field(..., min_length=1, max_length=20_000)
+    start: float = Field(..., ge=0, allow_inf_nan=False)
+    end: float = Field(..., ge=0, allow_inf_nan=False)
+    words: list[TranslationWordInput] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "CaptionTranslationInput":
+        if not isfinite(self.start) or not isfinite(self.end):
+            raise ValueError("caption timestamps must be finite")
+        if self.end <= self.start:
+            raise ValueError("caption end must be greater than start")
+        previous_end = self.start
+        for word in self.words:
+            if word.start < self.start or word.end > self.end:
+                raise ValueError("word timestamps must stay within the caption")
+            if word.start < previous_end:
+                raise ValueError("word timestamps must be ordered and non-overlapping")
+            previous_end = word.end
+        return self
+
+
+class CaptionPostProcessRequest(BaseModel):
+    source_language: str = Field(..., min_length=2, max_length=16)
+    target_language: str = Field(..., min_length=2, max_length=16)
+    segments: list[CaptionTranslationInput] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def validate_request(self) -> "CaptionPostProcessRequest":
+        if self.source_language.casefold() == self.target_language.casefold():
+            raise ValueError("source and target languages must differ")
+        ids = [segment.id for segment in self.segments]
+        if len(ids) != len(set(ids)):
+            raise ValueError("segment IDs must be unique")
+        return self
+
+
+class DisplayCaptionSegment(BaseModel):
+    id: int = Field(..., ge=0)
+    parent_id: int = Field(..., ge=0)
+    part_index: int = Field(..., ge=0)
+    source: str = Field(..., min_length=1, max_length=20_000)
+    translation: str = Field(..., min_length=1, max_length=20_000)
+    start: float = Field(..., ge=0, allow_inf_nan=False)
+    end: float = Field(..., ge=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "DisplayCaptionSegment":
+        if not isfinite(self.start) or not isfinite(self.end):
+            raise ValueError("display timestamps must be finite")
+        if self.end <= self.start:
+            raise ValueError("display end must be greater than start")
+        return self
+
+
+class SubtitleVariants(BaseModel):
+    srt: str
+    vtt: str
+
+
+class SubtitleDocumentSet(BaseModel):
+    source: SubtitleVariants
+    translation: SubtitleVariants
+    source_translation: SubtitleVariants
+    translation_source: SubtitleVariants
+
 
 class ContextualTranslationResponse(BaseModel):
     source_language: str
@@ -60,6 +159,17 @@ class ContextualTranslationResponse(BaseModel):
     theme: str = Field(..., min_length=1, max_length=2_000)
     terminology: list[TranslationTerm] = Field(default_factory=list)
     segments: list[TranslatedSegment] = Field(default_factory=list)
+    display_segments: list[DisplayCaptionSegment] = Field(default_factory=list)
+    audio_segments: list[TranslatedSegment] = Field(default_factory=list)
+    subtitles: SubtitleDocumentSet
+
+
+class CaptionPostProcessResponse(BaseModel):
+    source_language: str
+    target_language: str
+    display_segments: list[DisplayCaptionSegment] = Field(default_factory=list)
+    audio_segments: list[TranslatedSegment] = Field(default_factory=list)
+    subtitles: SubtitleDocumentSet
 
 
 @dataclass(frozen=True)
@@ -71,6 +181,10 @@ class ContextualTranslationLimits:
     batch_segments: int
     max_concurrency: int
     correction_retries: int
+    max_caption_chars: int
+    target_length_multiplier: float
+    split_passes: int
+    gap_close_seconds: float
 
     def __post_init__(self) -> None:
         for name, value in vars(self).items():
@@ -91,4 +205,8 @@ class ContextualTranslationLimits:
             batch_segments=value.CONTEXT_TRANSLATION_BATCH_SEGMENTS,
             max_concurrency=value.CONTEXT_TRANSLATION_MAX_CONCURRENCY,
             correction_retries=value.CONTEXT_TRANSLATION_CORRECTION_RETRIES,
+            max_caption_chars=value.CONTEXT_TRANSLATION_MAX_CAPTION_CHARS,
+            target_length_multiplier=value.CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER,
+            split_passes=value.CONTEXT_TRANSLATION_SPLIT_PASSES,
+            gap_close_seconds=value.CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS,
         )

@@ -3,9 +3,80 @@ import unittest
 from pydantic import ValidationError
 
 from app.models.translation import ContextualTranslationRequest
+from app.models.translation import CaptionPostProcessRequest, ContextualTranslationLimits
 
 
 class ContextualTranslationModelTests(unittest.TestCase):
+    def test_accepts_optional_words_inside_parent_segment(self):
+        request = ContextualTranslationRequest(
+            source_language="vi",
+            target_language="en",
+            segments=[
+                {
+                    "id": 7,
+                    "text": "Xin chào.",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "words": [{"word": "Xin", "start": 1.0, "end": 1.4}],
+                }
+            ],
+        )
+        self.assertEqual(request.segments[0].words[0].word, "Xin")
+
+    def test_rejects_word_outside_parent_segment(self):
+        with self.assertRaises(ValidationError):
+            ContextualTranslationRequest(
+                source_language="vi",
+                target_language="en",
+                segments=[
+                    {
+                        "id": 0,
+                        "text": "Xin chào.",
+                        "start": 1.0,
+                        "end": 2.0,
+                        "words": [{"word": "Xin", "start": 0.5, "end": 1.4}],
+                    }
+                ],
+            )
+
+    def test_caption_post_process_request_preserves_original_pair(self):
+        request = CaptionPostProcessRequest(
+            source_language="vi",
+            target_language="en",
+            segments=[
+                {
+                    "id": 4,
+                    "source": "Xin chào.",
+                    "translation": "Hello.",
+                    "start": 0,
+                    "end": 1,
+                    "words": [],
+                }
+            ],
+        )
+        self.assertEqual(request.segments[0].translation, "Hello.")
+
+    def test_caption_limits_read_the_configured_defaults(self):
+        class FakeSettings:
+            CONTEXT_TRANSLATION_SUMMARY_CHARS = 100
+            CONTEXT_TRANSLATION_MAX_SOURCE_CHARS = 1_000
+            CONTEXT_TRANSLATION_MAX_SEGMENTS = 100
+            CONTEXT_TRANSLATION_BATCH_CHARS = 50
+            CONTEXT_TRANSLATION_BATCH_SEGMENTS = 2
+            CONTEXT_TRANSLATION_MAX_CONCURRENCY = 2
+            CONTEXT_TRANSLATION_CORRECTION_RETRIES = 2
+            CONTEXT_TRANSLATION_MAX_CAPTION_CHARS = 32
+            CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER = 1.0
+            CONTEXT_TRANSLATION_SPLIT_PASSES = 3
+            CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS = 1.0
+
+        limits = ContextualTranslationLimits.from_settings(FakeSettings)
+
+        self.assertEqual(limits.max_caption_chars, 32)
+        self.assertEqual(limits.target_length_multiplier, 1.0)
+        self.assertEqual(limits.split_passes, 3)
+        self.assertEqual(limits.gap_close_seconds, 1.0)
+
     def test_accepts_ordered_timestamped_segments(self):
         request = ContextualTranslationRequest(
             source_language="vi",

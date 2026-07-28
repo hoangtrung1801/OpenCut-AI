@@ -21,6 +21,10 @@ def limits(**overrides):
         "batch_segments": 2,
         "max_concurrency": 2,
         "correction_retries": 2,
+        "max_caption_chars": 32,
+        "target_length_multiplier": 1.0,
+        "split_passes": 3,
+        "gap_close_seconds": 1.0,
     }
     values.update(overrides)
     return ContextualTranslationLimits(**values)
