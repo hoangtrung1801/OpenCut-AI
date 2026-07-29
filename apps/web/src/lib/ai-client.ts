@@ -479,6 +479,7 @@ class AIClient {
 		return this.requestFormData<TranscriptionResult>(
 			"/api/transcribe",
 			formData,
+			LLM_TIMEOUT_MS, // whisper transcription can take a long time for long audio
 		);
 	}
 

@@ -42,6 +42,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { useAssetsPanelStore } from "@/stores/assets-panel-store";
+import { useExitGuardStore } from "@/stores/exit-guard-store";
 
 export function EditorHeader() {
 	const { isConnected, backendStatus, error, errorType, refresh } = useAIStatus();
@@ -123,9 +124,14 @@ function ProjectDropdown() {
 	const router = useRouter();
 	const editor = useEditor();
 	const activeProject = editor.project.getActive();
+	const requestExit = useExitGuardStore((s) => s.requestExit);
 
-	const handleExit = async () => {
+	const handleExit = () => {
 		if (isExiting) return;
+		requestExit(actuallyExit);
+	};
+
+	const actuallyExit = async () => {
 		setIsExiting(true);
 
 		try {

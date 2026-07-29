@@ -13,8 +13,10 @@ import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorProvider } from "@/components/providers/editor-provider";
 import { Onboarding } from "@/components/editor/onboarding";
 import { MigrationDialog } from "@/components/editor/dialogs/migration-dialog";
+import { ExitConfirmationDialog } from "@/components/editor/dialogs/exit-confirmation-dialog";
 import { usePanelStore } from "@/stores/panel-store";
 import { usePasteMedia } from "@/hooks/use-paste-media";
+import { useBackNavigationGuard } from "@/hooks/use-back-navigation-guard";
 import { MobileGate } from "@/components/editor/mobile-gate";
 import { AIPanelWrapper } from "@/components/editor/ai/ai-panel-wrapper";
 import { QuickActionsBar } from "@/components/editor/ai/quick-actions-bar";
@@ -31,6 +33,7 @@ import { CommandPalette } from "@/components/editor/command-palette";
 export default function Editor() {
 	const params = useParams();
 	const projectId = params.project_id as string;
+	useBackNavigationGuard();
 
 	return (
 		<MobileGate>
@@ -43,6 +46,7 @@ export default function Editor() {
 					<AIPanelWrapper />
 					<Onboarding />
 					<MigrationDialog />
+					<ExitConfirmationDialog />
 					<BackgroundTasksWidget />
 					<CommandPalette />
 				</div>
