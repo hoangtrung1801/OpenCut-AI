@@ -292,8 +292,8 @@ lip synchronization.
 
 ### Job storage and artifacts
 
-The initial implementation uses an in-process, bounded job registry and local
-artifact directories under:
+The initial implementation uses an in-process job registry with bounded active
+concurrency and local artifact directories under:
 
 `GENERATED_DIR/dubbing/<job-id>/`
 
