@@ -33,7 +33,7 @@ async def _check_tts_ready() -> None:
     except httpx.ConnectError:
         raise HTTPException(
             status_code=503,
-            detail="TTS service is not running. Start it with: docker compose up -d tts-service",
+            detail="TTS service is not running. Start local services with: ./scripts/start-local-services.sh",
         )
     except Exception:
         raise HTTPException(
@@ -47,7 +47,7 @@ async def _check_tts_ready() -> None:
         raise HTTPException(
             status_code=503,
             detail="TTS library (coqui-tts) is not installed in the TTS service container. "
-            "Rebuild with: docker compose build tts-service && docker compose up -d tts-service",
+            "Install dependencies from services/tts-service/requirements.txt, then restart local services.",
         )
 
     if not model_info.get("loaded", False):
@@ -96,7 +96,7 @@ async def generate_speech(request: TTSRequest):
             status_code=503,
             detail="TTS service crashed during generation (likely out of memory). "
             "The XTTS v2 model requires ~4 GB RAM. "
-            "Restart with: docker compose restart tts-service",
+            "Restart the local tts-service process and try again.",
         )
     except httpx.ConnectError:
         raise HTTPException(
@@ -139,7 +139,7 @@ async def clone_voice(
         logger.error("TTS service disconnected during voice clone")
         raise HTTPException(
             status_code=503,
-            detail="TTS service crashed. Try restarting: docker compose restart tts-service",
+            detail="TTS service crashed. Restart the local tts-service process and try again.",
         )
     except httpx.ConnectError:
         raise HTTPException(
