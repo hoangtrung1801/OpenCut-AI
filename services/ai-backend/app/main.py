@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routes import analyze, audio, command, engagement, export, factcheck, generate, llm, podcast, sarvam, search, setup, smallest, template, transcribe, transcription_refine, transcribe_ws, translation, tts, turboquant, video, youtube
+from app.routes import analyze, audio, command, dubbing, engagement, export, factcheck, generate, llm, podcast, sarvam, search, setup, smallest, template, transcribe, transcription_refine, transcribe_ws, translation, tts, turboquant, video, youtube
 
 # Configure logging
 logging.basicConfig(
@@ -84,6 +84,7 @@ app.include_router(llm.router)
 app.include_router(command.router)
 app.include_router(analyze.router)
 app.include_router(tts.router)
+app.include_router(dubbing.router)
 app.include_router(generate.router)
 app.include_router(export.router)
 app.include_router(audio.router)
