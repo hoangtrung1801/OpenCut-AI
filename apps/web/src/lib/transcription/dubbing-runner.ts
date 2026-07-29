@@ -2,8 +2,15 @@ import { aiClient } from "@/lib/ai-client";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
 import { insertDubbingResult } from "@/lib/transcription/dubbing-workflow";
-import type { DubbingJobRequest, DubbingVoice, TranscriptionSegment } from "@/types/ai";
+import type {
+	ContextualTranslationRequest,
+	ContextualTranslationResult,
+	DubbingJobRequest,
+	DubbingVoice,
+	TranscriptionSegment,
+} from "@/types/ai";
 import type { EditorCore } from "@/core";
+import type { TranslatedTranscript } from "@/stores/transcript-store";
 
 export interface DubbingRunOptions {
 	targetLanguage: string;
@@ -17,6 +24,52 @@ function voiceFor(options: DubbingRunOptions): DubbingVoice {
 	if (options.voiceClonePath) return { mode: "clone", speaker_wav: options.voiceClonePath };
 	if (options.voiceDesign?.trim()) return { mode: "design", speaker: options.voiceDesign.trim() };
 	return { mode: "auto" };
+}
+
+interface TranslationSnapshot {
+	language: string;
+	segments: TranscriptionSegment[];
+	translations: TranslatedTranscript[];
+}
+
+export async function ensureTargetTranslation({
+	transcript,
+	targetLanguage,
+	translate = (request) => aiClient.translateTranscript(request),
+}: {
+	transcript: TranslationSnapshot;
+	targetLanguage: string;
+	translate?: (request: ContextualTranslationRequest) => Promise<ContextualTranslationResult>;
+}): Promise<TranslatedTranscript> {
+	const existing = transcript.translations.find(
+		(item) => item.languageCode.toLowerCase() === targetLanguage.toLowerCase(),
+	);
+	if (existing) return existing;
+	const result = await translate({
+		source_language: transcript.language,
+		target_language: targetLanguage,
+		segments: transcript.segments.map((segment) => ({
+			id: segment.id,
+			text: segment.text,
+			start: segment.start,
+			end: segment.end,
+			words: segment.words.map(({ word, start, end }) => ({ word, start, end })),
+		})),
+		custom_terms: [],
+	});
+	const audioSegments = result.audio_segments.length > 0 ? result.audio_segments : result.segments;
+	return {
+		languageCode: targetLanguage,
+		languageName: targetLanguage,
+		segments: audioSegments.map((segment) => ({
+			id: segment.id,
+			text: segment.translation,
+			start: segment.start,
+			end: segment.end,
+			words: [],
+		})),
+		displaySegments: result.display_segments,
+	};
 }
 
 function buildRequest(
@@ -70,17 +123,26 @@ export async function runDubbingJob({
 	editor: EditorCore;
 	options: DubbingRunOptions;
 }): Promise<void> {
-	const transcript = useTranscriptStore.getState();
 	const activeProject = editor.project.getActive();
 	if (!activeProject) throw new Error("No active project.");
-	const request = buildRequest(options, transcript);
-	if (request.audio_segments.length === 0 || request.display_segments.length === 0) {
-		throw new Error("No transcript segments available for dubbing.");
-	}
 	const taskId = `dubbing-${Date.now()}`;
 	const { addTask, updateTask } = useBackgroundTasksStore.getState();
 	addTask({ id: taskId, type: "dubbing", label: `Dubbing to ${options.targetLanguage}`, progress: "Queued…" });
 	try {
+		let transcript = useTranscriptStore.getState();
+		if (!transcript.translations.some((item) => item.languageCode.toLowerCase() === options.targetLanguage.toLowerCase())) {
+			updateTask(taskId, { progress: "Translating captions…" });
+			const translation = await ensureTargetTranslation({
+				transcript,
+				targetLanguage: options.targetLanguage,
+			});
+			useTranscriptStore.getState().addTranslation(translation);
+			transcript = useTranscriptStore.getState();
+		}
+		const request = buildRequest(options, transcript);
+		if (request.audio_segments.length === 0 || request.display_segments.length === 0) {
+			throw new Error("No transcript segments available for dubbing.");
+		}
 		const accepted = await aiClient.createDubbingJob(request);
 		let snapshot = await aiClient.getDubbingJob(accepted.job_id);
 		while (snapshot.status !== "completed" && snapshot.status !== "failed") {
