@@ -3,7 +3,11 @@ import type {
 	AIErrorType,
 	AISuggestion,
 	BRollSuggestionsResult,
-	CommandResult,
+		CommandResult,
+	CaptionPostProcessRequest,
+	CaptionPostProcessResult,
+	ContextualTranslationRequest,
+	ContextualTranslationResult,
 	DenoiseResult,
 	EmotionDetectionResult,
 	FaceDetectionResult,
@@ -24,6 +28,8 @@ import type {
 	TQModelsResponse,
 	TranscriptionResult,
 	TranscriptionSegment,
+	DubbingJobRequest,
+	DubbingJobSnapshot,
 	TurboQuantStatus,
 	FillerWord,
 	SilenceRegion,
@@ -483,6 +489,22 @@ class AIClient {
 		);
 	}
 
+	async createDubbingJob(request: DubbingJobRequest): Promise<{ job_id: string; status: "queued" }> {
+		return this.request<{ job_id: string; status: "queued" }>(
+			"/api/dubbing/jobs",
+			{ method: "POST", body: JSON.stringify(request) },
+			REQUEST_TIMEOUT_MS,
+		);
+	}
+
+	async getDubbingJob(jobId: string): Promise<DubbingJobSnapshot> {
+		return this.request<DubbingJobSnapshot>(
+			`/api/dubbing/jobs/${encodeURIComponent(jobId)}`,
+			{},
+			REQUEST_TIMEOUT_MS,
+		);
+	}
+
 	async analyzeFillers(
 		file: File,
 		fillerWords?: string,
@@ -756,6 +778,32 @@ class AIClient {
 			`You are a professional translator. Translate accurately and naturally into ${targetLanguage}. Return only the translated text.`,
 		);
 		return result.response.trim();
+	}
+
+	async translateTranscript(
+		request: ContextualTranslationRequest,
+	): Promise<ContextualTranslationResult> {
+		return this.request<ContextualTranslationResult>(
+			"/api/translations/contextual",
+			{
+				method: "POST",
+				body: JSON.stringify(request),
+			},
+			LLM_TIMEOUT_MS,
+		);
+	}
+
+	async postProcessCaptions(
+		request: CaptionPostProcessRequest,
+	): Promise<CaptionPostProcessResult> {
+		return this.request<CaptionPostProcessResult>(
+			"/api/translations/captions/post-process",
+			{
+				method: "POST",
+				body: JSON.stringify(request),
+			},
+			LLM_TIMEOUT_MS,
+		);
 	}
 
 	// ── Sarvam AI (Indian Languages) ──────────────────────────────────

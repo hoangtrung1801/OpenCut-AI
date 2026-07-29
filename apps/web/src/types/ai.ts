@@ -27,6 +27,75 @@ export interface TranscriptionResult {
 	separated_audio?: SeparatedAudio;
 }
 
+export type DubbingVoice =
+	| { mode: "clone"; speaker_wav: string }
+	| { mode: "design"; speaker: string }
+	| { mode: "auto" };
+
+export interface DubbingParentSegment {
+	id: number;
+	source: string;
+	translation: string;
+	start: number;
+	end: number;
+}
+
+export interface DubbingDisplaySegment extends DubbingParentSegment {
+	parent_id: number;
+	part_index: number;
+}
+
+export interface DubbingJobRequest {
+	source_language: string;
+	target_language: string;
+	audio_segments: DubbingParentSegment[];
+	display_segments: DubbingDisplaySegment[];
+	voice: DubbingVoice;
+	pace?: number;
+}
+
+export type DubbingJobStatus =
+	| "queued"
+	| "preparing"
+	| "generating"
+	| "fitting"
+	| "completed"
+	| "failed";
+
+export interface DubbingClipResult {
+	id: number;
+	parent_id: number;
+	part_index: number;
+	text: string;
+	start: number;
+	end: number;
+	duration: number;
+	audio_url: string;
+	timing_warning?: "overflow";
+}
+
+export interface DubbingCaptionResult {
+	id: number;
+	parent_id: number;
+	part_index: number;
+	text: string;
+	start: number;
+	end: number;
+}
+
+export interface DubbingJobSnapshot {
+	job_id: string;
+	status: DubbingJobStatus;
+	completed_clips: number;
+	total_clips: number;
+	result?: {
+		clips: DubbingClipResult[];
+		captions: DubbingCaptionResult[];
+		srt: string;
+	};
+	error?: { code: string; message: string };
+}
+
 export interface TranslationTerm {
 	source: string;
 	target: string;
