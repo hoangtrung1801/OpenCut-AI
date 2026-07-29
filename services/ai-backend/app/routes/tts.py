@@ -5,6 +5,7 @@ Checks model readiness before proxying to avoid crashes.
 """
 
 import logging
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -81,7 +82,18 @@ async def generate_speech(request: TTSRequest):
                     media_type=content_type,
                     headers={"Content-Disposition": 'attachment; filename="tts_output.wav"'},
                 )
-            return resp.json()
+            result = resp.json()
+            saved_path = result.get("path") if isinstance(result, dict) else None
+            if isinstance(saved_path, str):
+                path = Path(saved_path)
+                parts = path.parts
+                try:
+                    voices_index = parts.index("voices")
+                    if voices_index > 0 and parts[voices_index - 1] == "generated":
+                        result["path"] = Path(*parts[voices_index - 1:]).as_posix()
+                except ValueError:
+                    pass
+            return result
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:

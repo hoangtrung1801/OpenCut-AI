@@ -77,9 +77,8 @@ export function AIDubbingPanel() {
 			</div>
 
 			<p className="text-[10px] text-muted-foreground leading-relaxed">
-				Translates transcript segments and generates speech in the target
-				language. Each dubbed segment is placed as a new audio track aligned to
-				the original timestamps.
+				Uses the translated caption rows, fits speech to their timing, reuses the
+				Demucs background stem, and mutes the original source audio.
 			</p>
 
 			<div className="flex flex-col gap-1.5">
@@ -170,10 +169,14 @@ export function AIDubbingPanel() {
 				<div className="flex flex-col gap-1 rounded-md border border-primary/20 bg-primary/5 p-2">
 					<div className="flex items-center justify-between">
 						<span className="text-[9px] font-medium">
-							{progress.phase === "translating"
-								? "Translating..."
+							{progress.phase === "queued"
+								? "Queued..."
+								: progress.phase === "preparing"
+									? "Preparing..."
 								: progress.phase === "generating"
 									? "Generating speech..."
+									: progress.phase === "fitting"
+										? "Fitting timing..."
 									: progress.phase === "placing"
 										? "Placing on timeline..."
 										: "Done"}

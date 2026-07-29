@@ -1,22 +1,15 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { useTranscriptStore } from "@/stores/transcript-store";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
-import { aiClient } from "@/lib/ai-client";
-import { generateUUID } from "@/utils/id";
-import {
-	SARVAM_TTS_SUPPORTED_CODES,
-	toSarvamCode,
-} from "@/constants/sarvam-constants";
-import { toast } from "sonner";
-import type { TTSRequest, TranscriptionSegment } from "@/types/ai";
-import { insertGeneratedAudioElement } from "@/lib/media/generated-audio";
+import { invokeAction } from "@/lib/actions";
+import type { TTSRequest } from "@/types/ai";
 
-export type DubbingEngine = "sarvam" | "smallest" | "local";
+export type DubbingEngine = "local";
 
 export interface DubbingOptions {
 	targetLanguage: string;
-	engine: DubbingEngine;
+	engine?: DubbingEngine;
 	voiceId?: string;
 	voiceDesign?: string;
 	voiceClonePath?: string;
@@ -28,7 +21,7 @@ export interface DubbingProgress {
 	currentSegment: number;
 	totalSegments: number;
 	currentText: string;
-	phase: "translating" | "generating" | "placing" | "done";
+	phase: "queued" | "preparing" | "generating" | "fitting" | "placing" | "done" | "error";
 }
 
 export function buildLocalTTSRequest(
@@ -47,200 +40,48 @@ export function buildLocalTTSRequest(
 	return request;
 }
 
-function getAudioDuration(url: string): Promise<number> {
-	return new Promise((resolve) => {
-		const audio = new Audio(url);
-		audio.addEventListener("loadedmetadata", () => {
-			resolve(audio.duration);
-		});
-		audio.addEventListener("error", () => {
-			resolve(5);
-		});
-	});
+function parseProgress(value: string): Pick<DubbingProgress, "currentSegment" | "totalSegments" | "phase"> {
+	const match = value.match(/(\d+)\/(\d+)/);
+	const currentSegment = match ? Number(match[1]) : 0;
+	const totalSegments = match ? Number(match[2]) : 0;
+	const phase = value.toLowerCase().includes("placing") ? "placing" :
+		value.toLowerCase().includes("generating") ? "generating" :
+		value.toLowerCase().includes("fitting") ? "fitting" :
+		value.toLowerCase().includes("preparing") ? "preparing" : "queued";
+	return { currentSegment, totalSegments, phase };
 }
 
 export function useAIDubbing() {
 	const editor = useEditor();
 	const segments = useTranscriptStore((s) => s.segments);
-	const language = useTranscriptStore((s) => s.language);
-	const addTask = useBackgroundTasksStore((s) => s.addTask);
-	const updateTask = useBackgroundTasksStore((s) => s.updateTask);
+	const task = useBackgroundTasksStore((s) => [...s.tasks].reverse().find((item) => item.type === "dubbing"));
 
-	const [isDubbing, setIsDubbing] = useState(false);
-	const [progress, setProgress] = useState<DubbingProgress | null>(null);
+	const runDubbing = useCallback((options: DubbingOptions) => {
+		if (segments.length === 0) return;
+		invokeAction("generate-dubbing", {
+			targetLanguage: options.targetLanguage,
+			voiceDesign: options.voiceDesign,
+			voiceClonePath: options.voiceClonePath,
+			pace: options.pace,
+			segmentIndices: options.segmentIndices,
+		});
+	}, [segments.length]);
 
-	const runDubbing = useCallback(
-		async (options: DubbingOptions) => {
-			const targetSegments =
-				options.segmentIndices
-					?.map((i) => segments[i])
-					.filter(Boolean) ?? segments;
-
-			if (targetSegments.length === 0) {
-				toast.error("No segments to dub");
-				return;
+	const parsed = task ? parseProgress(task.progress) : {
+		currentSegment: 0,
+		totalSegments: 0,
+		phase: "queued" as const,
+	};
+	return {
+		runDubbing,
+		isDubbing: task?.status === "running",
+		progress: task
+			? {
+				...parsed,
+				currentText: task.progress,
+				phase: task.status === "completed" ? "done" : task.status === "error" ? "error" : parsed.phase,
 			}
-
-			setIsDubbing(true);
-			const activeProject = editor.project.getActive();
-			if (!activeProject) {
-				toast.error("No active project");
-				setIsDubbing(false);
-				return;
-			}
-
-			const taskId = `dubbing-${Date.now()}`;
-			addTask({
-				id: taskId,
-				type: "dubbing",
-				label: `Dubbing to ${options.targetLanguage}`,
-				progress: `0/${targetSegments.length} segments`,
-			});
-
-			const totalSegments = targetSegments.length;
-			let completed = 0;
-
-			const tracks = editor.timeline.getTracks();
-			let audioTrack = tracks.find((t) => t.type === "audio");
-			let trackId = audioTrack?.id;
-
-			if (!trackId) {
-				trackId = editor.timeline.addTrack({ type: "audio" });
-			}
-
-			try {
-				for (const seg of targetSegments) {
-					setProgress({
-						currentSegment: completed + 1,
-						totalSegments,
-						currentText: seg.text.slice(0, 50),
-						phase: "translating",
-					});
-
-					let translatedText: string;
-					const isSarvamLang = SARVAM_TTS_SUPPORTED_CODES.has(
-						options.targetLanguage,
-					);
-
-					if (isSarvamLang && language !== options.targetLanguage) {
-						const srcCode = toSarvamCode(language) ?? "en-IN";
-						const tgtCode = toSarvamCode(options.targetLanguage) ?? "hi-IN";
-						const result = await aiClient.sarvamTranslate(
-							seg.text,
-							srcCode,
-							tgtCode,
-						);
-						translatedText = result.translated_text;
-					} else if (language !== options.targetLanguage) {
-						translatedText = await aiClient.translateText(
-							seg.text,
-							options.targetLanguage,
-						);
-					} else {
-						translatedText = seg.text;
-					}
-
-					setProgress({
-						currentSegment: completed + 1,
-						totalSegments,
-						currentText: translatedText.slice(0, 50),
-						phase: "generating",
-					});
-
-					let audioBlob: Blob;
-					const isSarvam = options.engine === "sarvam" && isSarvamLang;
-					const isSmallest = options.engine === "smallest";
-
-					if (isSarvam) {
-						const sarvamCode =
-							toSarvamCode(options.targetLanguage) ?? "hi-IN";
-						audioBlob = await aiClient.sarvamTTS(
-							translatedText,
-							sarvamCode,
-							options.voiceId ?? "shubh",
-							options.pace ?? 1.0,
-						);
-					} else if (isSmallest) {
-						audioBlob = await aiClient.smallestTTS(
-							translatedText,
-							options.voiceId ?? "emily",
-							options.targetLanguage,
-							options.pace ?? 1.0,
-						);
-					} else {
-						audioBlob = await aiClient.generateSpeechBlob(
-							buildLocalTTSRequest(
-								translatedText,
-								options.targetLanguage,
-								options.voiceDesign,
-								options.voiceClonePath,
-							),
-						);
-					}
-
-					setProgress({
-						currentSegment: completed + 1,
-						totalSegments,
-						currentText: translatedText.slice(0, 50),
-						phase: "placing",
-					});
-
-					const ext = isSarvam || isSmallest ? "mp3" : "wav";
-					const mimeType = isSarvam || isSmallest ? "audio/mpeg" : "audio/wav";
-					const file = new File([audioBlob], `dub_${generateUUID()}.${ext}`, {
-						type: mimeType,
-					});
-					const audioUrl = URL.createObjectURL(file);
-					const duration = await getAudioDuration(audioUrl);
-					URL.revokeObjectURL(audioUrl);
-
-					await insertGeneratedAudioElement({
-						editor,
-						projectId: activeProject.metadata.id,
-						trackId: trackId!,
-						file,
-						name: `Dub [${options.targetLanguage}]: ${seg.text.slice(0, 20)}...`,
-						startTime: seg.start,
-						duration: duration || seg.end - seg.start,
-					});
-
-					completed++;
-					updateTask(taskId, {
-						progress: `${completed}/${totalSegments} segments`,
-					});
-					setProgress({
-						currentSegment: completed,
-						totalSegments,
-						currentText: translatedText.slice(0, 50),
-						phase: completed === totalSegments ? "done" : "translating",
-					});
-				}
-
-				updateTask(taskId, {
-					status: "completed",
-					progress: `${totalSegments}/${totalSegments} segments`,
-					completedAt: Date.now(),
-				});
-
-				toast.success(
-					`Dubbing complete: ${totalSegments} segments in ${options.targetLanguage}`,
-				);
-			} catch (error) {
-				const message =
-					error instanceof Error ? error.message : "Dubbing failed";
-				updateTask(taskId, {
-					status: "error",
-					error: message,
-					completedAt: Date.now(),
-				});
-				toast.error("Dubbing failed", { description: message });
-			} finally {
-				setIsDubbing(false);
-				setProgress(null);
-			}
-		},
-		[editor, segments, language, addTask, updateTask],
-	);
-
-	return { runDubbing, isDubbing, progress };
+			: null,
+		editor,
+	};
 }

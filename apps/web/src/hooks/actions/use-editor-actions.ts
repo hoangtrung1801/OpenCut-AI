@@ -25,6 +25,7 @@ import {
 	sarvamLanguageCode,
 } from "@/lib/transcription/translation-provider";
 import { translateAndAddCaptions } from "@/lib/transcription/translate-captions";
+import { runDubbingJob } from "@/lib/transcription/dubbing-runner";
 
 export function useEditorActions() {
 	const editor = useEditor();
@@ -90,6 +91,19 @@ export function useEditorActions() {
 				storeTrack: addSubtitleTrack,
 				hasExistingSubtitleTrack: () => subtitleTracks.length > 0,
 			}).catch(() => undefined);
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"generate-dubbing",
+		(args) => {
+			if (!args) return;
+			void runDubbingJob({ editor, options: args }).catch((error) => {
+				toast.error("Dubbing failed", {
+					description: error instanceof Error ? error.message : "Dubbing failed.",
+				});
+			});
 		},
 		undefined,
 	);

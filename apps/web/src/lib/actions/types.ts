@@ -12,6 +12,13 @@ export type TActionArgsMap = {
 		targetLanguage: string;
 		targetLanguageName: string;
 	} | undefined;
+	"generate-dubbing": {
+		targetLanguage: string;
+		voiceDesign?: string;
+		voiceClonePath?: string;
+		pace?: number;
+		segmentIndices?: number[];
+	} | undefined;
 };
 
 type TKeysWithValueUndefined<T> = {

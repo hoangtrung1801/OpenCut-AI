@@ -240,6 +240,16 @@ export const ACTIONS = {
 			targetLanguageName: "string",
 		},
 	},
+	"generate-dubbing": {
+		description: "Generate timing-fitted dubbing and place it on the timeline",
+		category: "ai",
+		args: {
+			targetLanguage: "string",
+			voiceDesign: "string | undefined",
+			voiceClonePath: "string | undefined",
+			pace: "number | undefined",
+		},
+	},
 	"add-transition": {
 		description: "Add transition between selected clips",
 		category: "editing",
