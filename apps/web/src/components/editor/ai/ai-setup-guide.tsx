@@ -32,6 +32,7 @@ import {
 	type ServiceHealth,
 	type ServiceName,
 } from "@/hooks/use-service-health";
+import { TTS_MODELS, loadedWhisperModel } from "@/lib/ai/service-models";
 
 // ----- Types -----
 
@@ -65,15 +66,6 @@ function statusBadge(status: ServiceState): {
 			return { variant: "destructive", label: "Error", dotColor: "bg-red-500" };
 	}
 }
-
-const SUGGESTED_TTS_MODELS = [
-	{ name: "xtts_v2", description: "Best quality — multilingual, voice cloning", size: "~1.8 GB", device: "cpu" as const, multilingual: true, voiceCloning: true },
-	{ name: "your_tts", description: "Multilingual, voice cloning, lighter", size: "~290 MB", device: "cpu" as const, multilingual: true, voiceCloning: true },
-	{ name: "kitten_tts", description: "Fast, expressive — small footprint", size: "~500 MB", device: "cpu" as const, multilingual: false, voiceCloning: false },
-	{ name: "vits-en", description: "English only — fast and lightweight", size: "~110 MB", device: "cpu" as const, multilingual: false, voiceCloning: false },
-	{ name: "vits-en-multi", description: "English multi-speaker", size: "~140 MB", device: "cpu" as const, multilingual: false, voiceCloning: false },
-	{ name: "tacotron2-en", description: "English — classic, reliable", size: "~130 MB", device: "cpu" as const, multilingual: false, voiceCloning: false },
-];
 
 const SUGGESTED_WHISPER_MODELS = [
 	{ name: "tiny", description: "Fastest — minimal accuracy", size: "~75 MB", device: "cpu" as const },
@@ -122,7 +114,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 			fetch(`${SERVICE_URLS.tts}/models`, { signal: AbortSignal.timeout(5000) })
 				.then((r) => r.ok ? r.json() : null)
 				.then((d) => {
-					if (d?.active_model) setActiveTTSModel(d.active_model);
+					setActiveTTSModel(d?.active_model ?? "");
 					if (d?.device) setActiveTTSDevice(d.device);
 				})
 				.catch(() => {});
@@ -130,8 +122,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 			fetch(`${SERVICE_URLS.whisper}/health`, { signal: AbortSignal.timeout(5000) })
 				.then((r) => r.ok ? r.json() : null)
 				.then((d) => {
-					const size = d?.model?.model_size;
-					if (size) setActiveWhisperModel(size);
+					setActiveWhisperModel(loadedWhisperModel(d?.model));
 					if (d?.model?.device) setActiveWhisperDevice(d.model.device);
 				})
 				.catch(() => {});
@@ -358,7 +349,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 								!isTTSRunning
 									? SERVICE_URLS.tts
 									: (tts.model_loaded || activeTTSModel)
-										? `${activeTTSModel || tts.model_name || "xtts_v2"} loaded`
+										? `${activeTTSModel || tts.model_name || "omnivoice"} loaded`
 										: tts.model_installed === false
 											? "Not installed"
 											: "Choose a model to load"
@@ -416,7 +407,7 @@ export function AISetupGuide({ isOpen, onOpenChange }: AISetupGuideProps) {
 										<span className="text-[11px] text-muted-foreground font-medium">
 											{(tts.model_loaded || activeTTSModel) ? "Switch to a different model" : "Choose a model to load"}
 										</span>
-										{SUGGESTED_TTS_MODELS.map((model) => {
+										{TTS_MODELS.map((model) => {
 											const isActive = model.name === activeTTSModel;
 											const isSwitching = isSwitchingTTS === model.name;
 
