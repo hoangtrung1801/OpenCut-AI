@@ -19,6 +19,7 @@ SERVICE_SPECS=(
 
 PIDS=()
 PID_NAMES=()
+LOG_TAIL_PID=""
 
 log_info() {
     printf '\033[0;32m[INFO]\033[0m  %s\n' "$*"
@@ -32,13 +33,21 @@ cleanup() {
     local exit_code=$?
     trap - EXIT INT TERM
 
+    if [ -n "$LOG_TAIL_PID" ] && kill -0 "$LOG_TAIL_PID" 2>/dev/null; then
+        kill "$LOG_TAIL_PID" 2>/dev/null || true
+    fi
+
     for pid in "${PIDS[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
             kill "$pid" 2>/dev/null || true
         fi
     done
 
-    rm -rf "$LOG_DIR"
+    if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 130 ] && [ "$exit_code" -ne 143 ]; then
+        log_error "Service logs preserved at $LOG_DIR"
+    else
+        rm -rf "$LOG_DIR"
+    fi
     exit "$exit_code"
 }
 
@@ -54,20 +63,21 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v curl >/dev/null 2>&1; then
+    log_error "curl is required to verify local service readiness."
+    exit 1
+fi
+
+STARTUP_TIMEOUT_SECONDS="${OPENCUTAI_SERVICE_STARTUP_TIMEOUT_SECONDS:-180}"
+
 # Keep model/device defaults local to this process. Existing shell values win.
-export WHISPER_MODEL_SIZE="${WHISPER_MODEL_SIZE:-base}"
-export WHISPER_DEVICE="${WHISPER_DEVICE:-cpu}"
-export WHISPER_COMPUTE_TYPE="${WHISPER_COMPUTE_TYPE:-int8}"
-export TTS_AUTOLOAD="${TTS_AUTOLOAD:-true}"
-export CLIP_MODEL_NAME="${CLIP_MODEL_NAME:-ViT-B-32}"
-export CLIP_PRETRAINED="${CLIP_PRETRAINED:-laion2b_s34b_b79k}"
+# export CLIP_MODEL_NAME="${CLIP_MODEL_NAME:-ViT-B-32}"
+# export CLIP_PRETRAINED="${CLIP_PRETRAINED:-laion2b_s34b_b79k}"
 export DEVICE="${DEVICE:-${OPENCUTAI_AI_COMPUTE_MODE:-auto}}"
-export AI_PROVIDER="${AI_PROVIDER:-local}"
-export OPENAI_MODEL="${OPENAI_MODEL:-gpt-4o-mini}"
-export MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-0.5B-Instruct}"
-export MODEL_DIR="${MODEL_DIR:-$SERVICES_ROOT/turboquant-service/models}"
-export KV_CACHE_BITS="${KV_CACHE_BITS:-4}"
-export MAX_CONTEXT_LENGTH="${MAX_CONTEXT_LENGTH:-8192}"
+# export AI_PROVIDER="${AI_PROVIDER:-local}"
+# export OPENAI_MODEL="${OPENAI_MODEL:-gpt-4o-mini}"
+# export KV_CACHE_BITS="${KV_CACHE_BITS:-4}"
+# export MAX_CONTEXT_LENGTH="${MAX_CONTEXT_LENGTH:-8192}"
 
 prepare_service() {
     local service_name="$1"
@@ -121,6 +131,30 @@ start_service() {
     log_info "  logs: $log_file"
 }
 
+wait_for_health() {
+    local service_name="$1"
+    local health_url="$2"
+    local pid="$3"
+    local elapsed=0
+
+    log_info "Waiting for $service_name readiness..."
+    while [ "$elapsed" -lt "$STARTUP_TIMEOUT_SECONDS" ]; do
+        if ! service_is_running "$pid"; then
+            log_error "$service_name exited during startup. Check $LOG_DIR/$service_name.log"
+            return 1
+        fi
+        if curl --silent --show-error --fail --max-time 2 "$health_url" >/dev/null 2>&1; then
+            log_info "$service_name is ready."
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    log_error "$service_name did not become ready within ${STARTUP_TIMEOUT_SECONDS}s. Check $LOG_DIR/$service_name.log"
+    return 1
+}
+
 service_is_running() {
     local pid="$1"
     local process_state
@@ -142,14 +176,27 @@ for spec in "${SERVICE_SPECS[@]}"; do
     prepare_service "$service_name"
 done
 
+# Load the largest TTS model before starting the other model services. Starting
+# all model loaders simultaneously can exhaust macOS shared memory and abort
+# the TTS process with SIGBUS while its weights are memory-mapped.
+start_service "tts-service" 8422 "app:app"
+tts_pid="${PIDS[$((${#PIDS[@]} - 1))]}"
+wait_for_health "tts-service" "http://127.0.0.1:8422/health" "$tts_pid"
+
 for spec in "${SERVICE_SPECS[@]}"; do
     IFS='|' read -r service_name port uvicorn_target health_url <<< "$spec"
+    [ "$service_name" = "tts-service" ] && continue
     start_service "$service_name" "$port" "$uvicorn_target"
     log_info "  health: $health_url"
 done
 
 echo ""
-log_info "All six local services are running. Press Ctrl-C to stop them."
+log_info "Streaming service logs below. Press Ctrl-C to stop all services."
+tail -n +1 -f "$LOG_DIR"/*.log &
+LOG_TAIL_PID="$!"
+
+echo ""
+log_info "All six local services are running."
 
 while true; do
     for index in "${!PIDS[@]}"; do
