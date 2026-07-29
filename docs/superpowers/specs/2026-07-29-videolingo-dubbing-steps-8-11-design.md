@@ -245,6 +245,8 @@ intermediates:
 
 Display rows remain distinct tasks. Short display captions are not merged
 because the user chose individually editable caption clips.
+If annotation removal leaves no spoken text, the task emits a 100 ms silent WAV
+without calling the TTS provider; the visible caption text is preserved.
 
 ### Voice resolution
 
