@@ -110,6 +110,7 @@ function transcriptTranslation(
 	targetLanguage: string,
 	targetLanguageName: string,
 	segments: ContextualTranslatedSegment[],
+	display: DisplayCaptionSegment[],
 ): TranslatedTranscript {
 	return {
 		languageCode: targetLanguage,
@@ -121,6 +122,7 @@ function transcriptTranslation(
 			end: segment.end,
 			words: [],
 		})),
+		displaySegments: display,
 	};
 }
 
@@ -146,6 +148,7 @@ export async function translateAndAddCaptions(
 
 	try {
 		let display: CaptionSourceSegment[];
+		let processedDisplaySegments: DisplayCaptionSegment[];
 		let audio: ContextualTranslatedSegment[];
 		if (shouldUseSarvamTranslation(snapshot.language, args.targetLanguage)) {
 			dependencies.updateTask(taskId, {
@@ -160,7 +163,8 @@ export async function translateAndAddCaptions(
 			const processed = await dependencies.postProcessCaptions(
 				postProcessRequest(snapshot, args.targetLanguage, originalTranslation),
 			);
-			display = displaySegments(processed.display_segments);
+			processedDisplaySegments = processed.display_segments;
+			display = displaySegments(processedDisplaySegments);
 			audio = processed.audio_segments;
 		} else {
 			dependencies.updateTask(taskId, {
@@ -169,7 +173,8 @@ export async function translateAndAddCaptions(
 			const result = await dependencies.translateContextual(
 				contextualRequest(snapshot, args.targetLanguage),
 			);
-			display = displaySegments(result.display_segments);
+			processedDisplaySegments = result.display_segments;
+			display = displaySegments(processedDisplaySegments);
 			audio = result.audio_segments;
 		}
 
@@ -179,6 +184,7 @@ export async function translateAndAddCaptions(
 				args.targetLanguage,
 				args.targetLanguageName,
 				audio,
+				processedDisplaySegments,
 			),
 		);
 		const trackId = dependencies.createTrack({

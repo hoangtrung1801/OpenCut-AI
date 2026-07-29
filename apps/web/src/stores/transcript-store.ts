@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type {
 	TranscriptionSegment,
+	SeparatedAudio,
+	DisplayCaptionSegment,
 	EmotionSegment,
 	FillerWord,
 	SilenceRegion,
@@ -11,6 +13,7 @@ export interface TranslatedTranscript {
 	languageCode: string;
 	languageName: string;
 	segments: TranscriptionSegment[];
+	displaySegments?: DisplayCaptionSegment[];
 }
 
 export interface SubtitleTrackInfo {
@@ -24,6 +27,8 @@ interface TranscriptState {
 	progress: number;
 	language: string;
 	duration: number;
+	sourceMediaId: string | null;
+	separatedAudio: SeparatedAudio | null;
 	selectedSegmentIds: Set<number>;
 	fillers: FillerWord[];
 	silences: SilenceRegion[];
@@ -46,6 +51,9 @@ interface TranscriptState {
 	setTranscribing: (isTranscribing: boolean) => void;
 	setProgress: (progress: number) => void;
 	setLanguage: (language: string) => void;
+	setDuration: (duration: number) => void;
+	setSourceMediaId: (mediaId: string | null) => void;
+	setSeparatedAudio: (audio: SeparatedAudio | null) => void;
 	deleteSegments: (ids: number[]) => void;
 	reorderSegments: (fromIndex: number, toIndex: number) => void;
 	selectSegment: (id: number) => void;
@@ -79,6 +87,8 @@ const initialState = {
 	progress: 0,
 	language: "auto",
 	duration: 0,
+	sourceMediaId: null,
+	separatedAudio: null,
 	selectedSegmentIds: new Set<number>(),
 	fillers: [] as FillerWord[],
 	silences: [] as SilenceRegion[],
@@ -110,6 +120,12 @@ export const useTranscriptStore = create<TranscriptState>()((set, get) => ({
 	setProgress: (progress) => set({ progress }),
 
 	setLanguage: (language) => set({ language }),
+
+	setDuration: (duration) => set({ duration }),
+
+	setSourceMediaId: (sourceMediaId) => set({ sourceMediaId }),
+
+	setSeparatedAudio: (separatedAudio) => set({ separatedAudio }),
 
 	deleteSegments: (ids) =>
 		set((state) => {

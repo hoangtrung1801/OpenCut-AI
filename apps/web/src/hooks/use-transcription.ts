@@ -30,10 +30,13 @@ export function useTranscription() {
 		setProgress,
 		setSegments,
 		setLanguage,
+		setDuration,
+		setSourceMediaId,
+		setSeparatedAudio,
 	} = useTranscriptStore();
 
 	const transcribeVideo = useCallback(
-		async (file: File, language?: string) => {
+		async (file: File, sourceMediaId?: string, language?: string) => {
 			setError(null);
 			setTranscribing(true);
 			setProgress(0);
@@ -45,6 +48,9 @@ export function useTranscription() {
 
 				setSegments(result.segments);
 				setLanguage(result.language);
+				setDuration(result.duration);
+				setSourceMediaId(sourceMediaId ?? null);
+				setSeparatedAudio(result.separated_audio ?? null);
 				setProgress(100);
 
 				return result;
@@ -56,7 +62,7 @@ export function useTranscription() {
 				setTranscribing(false);
 			}
 		},
-		[setTranscribing, setProgress, setSegments, setLanguage],
+		[setTranscribing, setProgress, setSegments, setLanguage, setDuration, setSourceMediaId, setSeparatedAudio],
 	);
 
 	const clearError = useCallback(() => {

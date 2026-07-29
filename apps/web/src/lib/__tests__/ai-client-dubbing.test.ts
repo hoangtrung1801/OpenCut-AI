@@ -27,7 +27,7 @@ describe("AIClient dubbing jobs", () => {
 		});
 
 		expect(result.status).toBe("queued");
-		const [url, init] = fetchMock.mock.calls[0];
+		const [url, init] = (fetchMock.mock.calls as unknown as [RequestInfo, RequestInit][])[0];
 		expect(String(url)).toEndWith("/api/dubbing/jobs");
 		expect(JSON.parse(String(init?.body)).voice).toEqual({
 			mode: "clone",
@@ -45,7 +45,8 @@ describe("AIClient dubbing jobs", () => {
 
 		const result = await aiClient.getDubbingJob("job-1");
 		expect(result.status).toBe("completed");
-		expect(String((globalThis.fetch as unknown as ReturnType<typeof mock>).mock.calls[0][0]))
+		const calls = (globalThis.fetch as unknown as ReturnType<typeof mock>).mock.calls as unknown as [RequestInfo, RequestInit][];
+		expect(String(calls[0][0]))
 			.toEndWith("/api/dubbing/jobs/job-1");
 	});
 });

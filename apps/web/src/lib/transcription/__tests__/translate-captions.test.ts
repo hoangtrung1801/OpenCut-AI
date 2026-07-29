@@ -95,12 +95,16 @@ describe("translateAndAddCaptions", () => {
 	test("commits translation and track only after contextual success", async () => {
 		const calls: string[] = [];
 		let createdSegments: CaptionSourceSegment[] = [];
+		let storedTranslation: unknown;
 		const result = await translateAndAddCaptions(
 			{ targetLanguage: "en", targetLanguageName: "English" },
 			dependencies({
 				addTask: () => calls.push("task"),
 				updateTask: (_id, update) => calls.push(String(update.status ?? update.progress)),
-				storeTranslation: () => calls.push("translation"),
+				storeTranslation: (translation) => {
+					storedTranslation = translation;
+					calls.push("translation");
+				},
 				createTrack: ({ segments }) => {
 					calls.push("track");
 					createdSegments = segments;
@@ -117,6 +121,9 @@ describe("translateAndAddCaptions", () => {
 			{ text: "Hel", start: 0, end: 0.5, words: [] },
 			{ text: "lo.", start: 0.5, end: 1, words: [] },
 		]);
+		expect((storedTranslation as { displaySegments: unknown[] }).displaySegments).toEqual(
+			contextualResult.display_segments,
+		);
 	});
 
 	test("sends transcript word timings to contextual translation", async () => {

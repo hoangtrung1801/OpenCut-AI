@@ -544,7 +544,7 @@ export function useTextTimelineBridge() {
 		}
 
 		try {
-			const result = await transcribeVideo(mediaAsset.file);
+			const result = await transcribeVideo(mediaAsset.file, foundMediaId);
 
 			// Auto-split the video at segment boundaries so each
 			// transcript segment maps to its own timeline clip
