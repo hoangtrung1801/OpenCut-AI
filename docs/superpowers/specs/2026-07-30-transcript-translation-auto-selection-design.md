@@ -49,14 +49,13 @@ existing validity check displays the original transcript.
 
 ## Testing
 
-Add a focused component regression test that:
+Add a focused tab-selection regression test that:
 
-- starts on the original transcript;
-- adds a translation and verifies the translated text becomes visible;
-- verifies the original text is not shown in the translated view;
-- selects the original-language tab and verifies the original text remains
-  available;
-- replaces an existing target-language translation and verifies the updated
-  translation becomes active.
+- selects the most recently stored translated language;
+- handles replacement of an existing target-language translation;
+- leaves the original transcript data untouched.
+
+Run the complete web test suite and TypeScript check to verify the panel
+integration. Do not add a DOM testing dependency solely for this change.
 
 No backend, schema, or translation API changes are required.
