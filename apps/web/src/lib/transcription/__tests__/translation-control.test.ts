@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { getTranslationControlState } from "@/lib/transcription/translation-control";
+import {
+	getTranslationControlState,
+	getTranslationTabAfterChange,
+} from "@/lib/transcription/translation-control";
 
 describe("getTranslationControlState", () => {
 	test("hides the control until a transcript exists", () => {
@@ -41,5 +44,27 @@ describe("getTranslationControlState", () => {
 				translating: false,
 			}),
 		).toEqual({ visible: true, disabled: false });
+	});
+
+	test("selects the most recently added translation language", () => {
+		expect(
+			getTranslationTabAfterChange(1, [
+				{ languageCode: "fr" },
+				{ languageCode: "vi" },
+			]),
+		).toBe("vi");
+	});
+
+	test("selects a replacement translation for the same language", () => {
+		expect(
+			getTranslationTabAfterChange(1, [{ languageCode: "vi" }]),
+		).toBe("vi");
+	});
+
+	test("does not select another translation when one is removed", () => {
+		expect(
+			getTranslationTabAfterChange(2, [{ languageCode: "fr" }]),
+		).toBeNull();
+		expect(getTranslationTabAfterChange(0, [])).toBeNull();
 	});
 });

@@ -24,3 +24,11 @@ export function getTranslationControlState({
 		activeLanguages.includes(targetLanguage);
 	return { visible, disabled };
 }
+
+export function getTranslationTabAfterChange(
+	previousCount: number,
+	translations: readonly { languageCode: string }[],
+): string | null {
+	if (translations.length < previousCount) return null;
+	return translations.at(-1)?.languageCode ?? null;
+}

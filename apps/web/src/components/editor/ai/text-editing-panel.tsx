@@ -10,6 +10,7 @@ import { cn } from "@/utils/ui";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { aiClient } from "@/lib/ai-client";
 import { hasMediaId } from "@/lib/timeline";
+import { getTranslationTabAfterChange } from "@/lib/transcription/translation-control";
 import type { TimelineElement } from "@/types/timeline";
 import {
 	TranscriptionPanel,
@@ -70,6 +71,16 @@ export function TextEditingPanel({ className }: { className?: string }) {
 	const storeSilences = useTranscriptStore((s) => s.silences);
 	const translations = useTranscriptStore((s) => s.translations);
 	const speakerNames = useTranscriptStore((s) => s.speakerNames);
+	const previousTranslationCount = useRef(0);
+
+	useEffect(() => {
+		const latestLanguage = getTranslationTabAfterChange(
+			previousTranslationCount.current,
+			translations,
+		);
+		previousTranslationCount.current = translations.length;
+		if (latestLanguage) setActiveTab(latestLanguage);
+	}, [translations]);
 
 	// ── Speaker Diarization ──
 	const handleDetectSpeakers = useCallback(async () => {
