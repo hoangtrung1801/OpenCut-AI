@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
 	Delete02Icon,
+	Cancel01Icon,
 	TaskAdd02Icon,
 	ViewIcon,
 	ViewOffSlashIcon,
@@ -596,7 +597,7 @@ function TrackLabelList({ tracks, editor }: { tracks: TimelineTrack[]; editor: R
 								}
 							/>
 						)}
-						{canTrackBeHidden(track) && (
+							{canTrackBeHidden(track) && (
 							<TrackToggleIcon
 								isOff={track.hidden}
 								icons={{
@@ -608,9 +609,26 @@ function TrackLabelList({ tracks, editor }: { tracks: TimelineTrack[]; editor: R
 										trackId: track.id,
 									})
 								}
-							/>
-						)}
-					</div>
+								/>
+							)}
+							<Tooltip delayDuration={300}>
+								<TooltipTrigger asChild>
+									<button
+										type="button"
+										draggable={false}
+										onMouseDown={(event) => event.stopPropagation()}
+										onClick={(event) => {
+											event.stopPropagation();
+											editor.timeline.removeTrack({ trackId: track.id });
+										}}
+										className="opacity-50 hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+									>
+										<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+									</button>
+								</TooltipTrigger>
+								<TooltipContent side="right">Remove track</TooltipContent>
+							</Tooltip>
+						</div>
 				</div>
 			))}
 		</div>
