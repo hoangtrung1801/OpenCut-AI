@@ -15,7 +15,7 @@ import {
 import type { TimelineElement } from "@/types/timeline";
 
 export function useSmartCut() {
-	const editor = useEditor();
+	const editor = useEditor("static");
 
 	const runSmartCut = useCallback(async () => {
 		const tracks = editor.timeline.getTracks();

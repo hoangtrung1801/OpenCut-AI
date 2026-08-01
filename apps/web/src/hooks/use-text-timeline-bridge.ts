@@ -27,7 +27,7 @@ import { toast } from "sonner";
  * operations into timeline splits and deletions via EditorCore.
  */
 export function useTextTimelineBridge() {
-	const editor = useEditor();
+	const editor = useEditor("static");
 	const { transcribeVideo, isTranscribing, progress, error } =
 		useTranscription();
 	const { isConnected } = useAIStatus();

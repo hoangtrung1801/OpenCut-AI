@@ -95,7 +95,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 	const segments = useTranscriptStore((s) => s.segments);
 	const transcriptLanguage = useTranscriptStore((s) => s.language);
 	const translations = useTranscriptStore((s) => s.translations);
-	const editor = useEditor();
+	const editor = useEditor("timeline");
 	const { handleDeleteSegments } = useTextTimelineBridge();
 	const { runSmartCut } = useSmartCut();
 

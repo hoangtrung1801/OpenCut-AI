@@ -36,7 +36,7 @@ function formatTimestamp(seconds: number): string {
  * translated transcripts in additional tabs.
  */
 export function TextEditingPanel({ className }: { className?: string }) {
-	const editor = useEditor();
+	const editor = useEditor("static");
 	const {
 		handleDeleteSegments,
 		handleCutWords,
@@ -54,12 +54,16 @@ export function TextEditingPanel({ className }: { className?: string }) {
 	// Continuously track playback time so word/segment highlighting updates live
 	const [currentTime, setCurrentTime] = useState(0);
 	const rafRef = useRef<number>(0);
+	const lastTimeUpdateRef = useRef(0);
 
 	useEffect(() => {
 		let running = true;
-		const tick = () => {
+		const tick = (now: number) => {
 			if (!running) return;
-			setCurrentTime(editor.playback.getCurrentTime());
+			if (now - lastTimeUpdateRef.current >= 50) {
+				lastTimeUpdateRef.current = now;
+				setCurrentTime(editor.playback.getCurrentTime());
+			}
 			rafRef.current = requestAnimationFrame(tick);
 		};
 		rafRef.current = requestAnimationFrame(tick);

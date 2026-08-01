@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import { EditorCore } from "@/core";
 
-export function useEditor(): EditorCore {
+type EditorSubscription = "all" | "timeline" | "static";
+
+export function useEditor(subscription: EditorSubscription = "all"): EditorCore {
 	const editor = useMemo(() => EditorCore.getInstance(), []);
 	const versionRef = useRef(0);
 
@@ -12,15 +14,19 @@ export function useEditor(): EditorCore {
 				onStoreChange();
 			};
 
-			const unsubscribers = [
-				editor.playback.subscribe(handleStoreChange),
-				editor.timeline.subscribe(handleStoreChange),
-				editor.scenes.subscribe(handleStoreChange),
-				editor.project.subscribe(handleStoreChange),
-				editor.media.subscribe(handleStoreChange),
-				editor.renderer.subscribe(handleStoreChange),
-				editor.selection.subscribe(handleStoreChange),
-			];
+			const unsubscribers = subscription === "all"
+				? [
+					editor.playback.subscribe(handleStoreChange),
+					editor.timeline.subscribe(handleStoreChange),
+					editor.scenes.subscribe(handleStoreChange),
+					editor.project.subscribe(handleStoreChange),
+					editor.media.subscribe(handleStoreChange),
+					editor.renderer.subscribe(handleStoreChange),
+					editor.selection.subscribe(handleStoreChange),
+				]
+				: subscription === "timeline"
+					? [editor.timeline.subscribe(handleStoreChange)]
+					: [];
 
 			return () => {
 				for (const unsubscribe of unsubscribers) {
@@ -28,7 +34,7 @@ export function useEditor(): EditorCore {
 				}
 			};
 		},
-		[editor],
+		[editor, subscription],
 	);
 
 	const getSnapshot = useCallback(() => versionRef.current, []);
