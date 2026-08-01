@@ -32,3 +32,24 @@ export function getTranslationTabAfterChange(
 	if (translations.length < previousCount) return null;
 	return translations.at(-1)?.languageCode ?? null;
 }
+
+export function getTranslationDisplaySegments({
+	segments,
+	displaySegments,
+}: {
+	segments: TranscriptionSegment[];
+	displaySegments?: DisplayCaptionSegment[];
+}): DisplayCaptionSegment[] {
+	if (displaySegments && displaySegments.length > 0) return displaySegments;
+
+	return segments.map((segment) => ({
+		id: segment.id,
+		parent_id: segment.id,
+		part_index: 0,
+		source: segment.text,
+		translation: segment.text,
+		start: segment.start,
+		end: segment.end,
+	}));
+}
+import type { DisplayCaptionSegment, TranscriptionSegment } from "@/types/ai";

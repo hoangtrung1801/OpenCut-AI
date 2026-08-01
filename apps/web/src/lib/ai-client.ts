@@ -106,6 +106,7 @@ export function buildTTSRequestBody(request: TTSRequest) {
 		text: request.text,
 		language: request.language,
 		speaker_wav: request.speakerWav,
+		reference_text: request.referenceText,
 		speaker: request.speaker,
 		speed: request.speed,
 	};

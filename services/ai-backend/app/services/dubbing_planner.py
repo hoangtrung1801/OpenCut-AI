@@ -6,9 +6,9 @@ import re
 from dataclasses import dataclass
 
 from app.models.dubbing import (
-    DubbingDisplaySegment,
     DubbingJobCreateRequest,
     DubbingLimits,
+    DubbingParentSegment,
 )
 
 
@@ -57,15 +57,15 @@ def _clean_tts_text(text: str) -> str:
     return cleaned.replace("-", "").strip()
 
 
-def _clip_task(display: DubbingDisplaySegment) -> DubbingClipTask:
+def _clip_task(parent: DubbingParentSegment) -> DubbingClipTask:
     return DubbingClipTask(
-        id=display.id,
-        parent_id=display.parent_id,
-        part_index=display.part_index,
-        caption_text=display.translation,
-        tts_text=_clean_tts_text(display.translation),
-        original_start=display.start,
-        original_end=display.end,
+        id=parent.id,
+        parent_id=parent.id,
+        part_index=0,
+        caption_text=parent.translation,
+        tts_text=_clean_tts_text(parent.translation),
+        original_start=parent.start,
+        original_end=parent.end,
     )
 
 
@@ -73,10 +73,6 @@ def build_dubbing_plan(
     request: DubbingJobCreateRequest,
     limits: DubbingLimits,
 ) -> DubbingPlan:
-    displays_by_parent: dict[int, list[DubbingDisplaySegment]] = {}
-    for display in request.display_segments:
-        displays_by_parent.setdefault(display.parent_id, []).append(display)
-
     parents: list[DubbingParentTask] = []
     all_clips: list[DubbingClipTask] = []
     for index, segment in enumerate(request.audio_segments):
@@ -85,13 +81,7 @@ def build_dubbing_plan(
             if index + 1 < len(request.audio_segments)
             else 0.0
         )
-        clips = tuple(
-            _clip_task(display)
-            for display in sorted(
-                displays_by_parent[segment.id],
-                key=lambda item: item.part_index,
-            )
-        )
+        clips = (_clip_task(segment),)
         parent = DubbingParentTask(
             id=segment.id,
             start=segment.start,

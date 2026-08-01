@@ -94,6 +94,10 @@ def matching_terms(text: str, terms: list[TranslationTerm]) -> list[TranslationT
     return [term for term in terms if term.source.casefold() in folded]
 
 
+def normalize_inline_text(text: str) -> str:
+    return " ".join(text.split())
+
+
 T = TypeVar("T")
 
 
@@ -177,7 +181,12 @@ class ContextualTranslationService:
             "Translate every numbered source segment naturally and faithfully. "
             "Return ONLY a JSON object with a translations array. Each array item "
             "must contain the original integer id and one non-empty translation. "
-            "Do not merge, split, omit, reorder, or rewrite the IDs.\n"
+            "Do not merge, split, omit, reorder, or rewrite the IDs. "
+            "Write concise, natural subtitle text while preserving all meaning. "
+            "Do not include newline characters. When one sentence continues across "
+            "adjacent IDs, make the translations read naturally in sequence. "
+            "Do not repeat words or meaning. Prefer idiomatic target-language "
+            "phrasing over literal word-for-word structure.\n"
             f"Source language: {request.source_language}\n"
             f"Target language: {request.target_language}\n"
             f"Theme: {context.theme}\n"
@@ -278,12 +287,14 @@ class ContextualTranslationService:
                     isinstance(identifier, bool)
                     or not isinstance(identifier, int)
                     or not isinstance(translation, str)
-                    or not translation.strip()
                 ):
                     raise TranslationValidationError(
                         "translation item has an invalid shape"
                     )
-                values.append((identifier, translation.strip()))
+                normalized = normalize_inline_text(translation)
+                if not normalized:
+                    raise TranslationValidationError("translation cannot be empty")
+                values.append((identifier, normalized))
             actual_ids = [identifier for identifier, _ in values]
             if actual_ids != expected_ids:
                 raise TranslationValidationError(

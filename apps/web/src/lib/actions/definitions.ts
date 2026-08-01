@@ -247,7 +247,9 @@ export const ACTIONS = {
 			targetLanguage: "string",
 			voiceDesign: "string | undefined",
 			voiceClonePath: "string | undefined",
+			voiceCloneReferenceText: "string | undefined",
 			pace: "number | undefined",
+			sentenceOverrides: "record | undefined",
 		},
 	},
 	"add-transition": {

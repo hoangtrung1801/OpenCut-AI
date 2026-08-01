@@ -24,6 +24,7 @@ bun.lockb
 
 # AI Backend
 services/ai-backend/.venv/
+services/*/.venv/
 services/ai-backend/__pycache__/
 services/ai-backend/**/__pycache__/
 services/ai-backend/*.pyc

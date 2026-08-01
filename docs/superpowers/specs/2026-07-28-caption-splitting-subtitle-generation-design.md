@@ -210,13 +210,15 @@ CONTEXT_TRANSLATION_MAX_CAPTION_CHARS=32
 CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER=1.0
 CONTEXT_TRANSLATION_SPLIT_PASSES=3
 CONTEXT_TRANSLATION_MAX_SPLIT_PASSES=8
+CONTEXT_TRANSLATION_MIN_CAPTION_DURATION=0.8
 CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS=1.0
 ```
 
 The maximum length matches the web's
 `DEFAULT_MAX_CHARS_PER_LINE = 32`. The backend value controls translated
 caption processing; the web value controls original-language local caption
-construction.
+construction. The minimum duration matches the web's
+`MIN_CAPTION_DURATION_SECONDS = 0.8`.
 
 The target multiplier remains explicit so deployments can compensate for
 visual differences between source and target scripts without changing the
@@ -268,9 +270,19 @@ can be divided during the next pass. Processing uses three normal passes and
 can adaptively continue up to eight total passes when target-language expansion
 still exceeds the policy.
 
-If a part still exceeds the limit after the eighth pass, or cannot be split into
-two non-empty source parts, the workflow fails with a validation error. It does
-not return an oversized partial result.
+If a part still exceeds the limit after the eighth pass, the display path uses a
+deterministic target-text fallback. It prefers sentence punctuation, then phrase
+and word boundaries, and finally character boundaries for a single long token.
+Fallback pieces receive proportional timings and the original audio segment is
+left intact. A source that is too short to split uses the same display fallback.
+The workflow fails only when the fallback cannot produce valid bounded pieces.
+
+After length processing, adjacent pieces from the same parent are merged when a
+piece would display for less than the configured minimum duration. Merged cues
+retain each bounded piece as a separate line, so the character policy applies
+per line while the cue remains visible long enough to read. A parent segment
+that is itself shorter than the minimum remains one cue at its original timing;
+the processor never extends it into a neighboring parent.
 
 ### Word-derived timestamps
 
@@ -420,7 +432,7 @@ Expected client errors return HTTP 422:
 - duplicate or unordered IDs;
 - impossible time ranges;
 - request limit violations; and
-- content that cannot satisfy the split policy.
+- content that cannot satisfy the split policy after deterministic display fallback.
 
 Missing word timings and incomplete but structurally valid word coverage use
 the proportional timing fallback and do not fail the request.

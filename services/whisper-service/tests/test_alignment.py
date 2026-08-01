@@ -34,7 +34,7 @@ class AlignmentTests(unittest.TestCase):
             return self.loaded_model, {"language": language}
 
         def align_fn(segments, model, metadata, audio_path, **kwargs):
-            self.align_calls.append((segments, model, metadata, audio_path))
+            self.align_calls.append((segments, model, metadata, audio_path, kwargs))
             return {"word_segments": [
                 {"word": "Hello", "start": 0.12, "end": 0.44},
                 {"word": "world", "start": 0.51, "end": 0.91},
@@ -56,6 +56,7 @@ class AlignmentTests(unittest.TestCase):
         self.assertEqual([word.word for word in aligned], ["Hello", "world"])
         self.assertEqual([(word.start, word.end) for word in aligned], [(0.12, 0.44), (0.51, 0.91)])
         self.assertEqual(aligned[0].probability, self.native_words[0].probability)
+        self.assertEqual(self.align_calls[0][-1]["device"], "cpu")
 
     def test_unsupported_language_returns_native_word_objects(self):
         def failing_loader(language, device):
@@ -81,6 +82,27 @@ class AlignmentTests(unittest.TestCase):
 
         aligner = WhisperAligner(Settings.from_env({}), model_loader=self.loader, align_fn=failing_align)
         self.assertIs(aligner.align(self.native_words, self.raw_segments, "en", self.vocals), self.native_words)
+
+    def test_non_monotonic_alignment_keeps_native_timestamps(self):
+        def out_of_order_align(*args, **kwargs):
+            return {
+                "word_segments": [
+                    {"word": "Hello", "start": 5.0, "end": 5.2},
+                    {"word": "world", "start": 2.0, "end": 2.2},
+                ]
+            }
+
+        aligner = WhisperAligner(
+            Settings.from_env({}),
+            model_loader=self.loader,
+            align_fn=out_of_order_align,
+        )
+        aligned = aligner.align(self.native_words, self.raw_segments, "en", self.vocals)
+
+        self.assertEqual(
+            [(word.start, word.end) for word in aligned],
+            [(0.5, 0.9), (1.0, 1.4)],
+        )
 
 
 if __name__ == "__main__":

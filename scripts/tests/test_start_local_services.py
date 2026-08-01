@@ -14,6 +14,12 @@ class LocalServicesLauncherTest(unittest.TestCase):
         self.assertLess(tts_start, tts_ready)
         self.assertLess(tts_ready, other_services_loop)
 
+    def test_launcher_prefixes_parallel_service_logs(self):
+        self.assertIn("stream_logs()", SCRIPT)
+        self.assertIn('stream_logs &', SCRIPT)
+        self.assertNotIn('tail -n +1 -f "$LOG_DIR"/*.log', SCRIPT)
+        self.assertIn('[$service_name]', SCRIPT)
+
 
 if __name__ == "__main__":
     unittest.main()

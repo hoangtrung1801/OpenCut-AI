@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { aiClient } from "@/lib/ai-client";
@@ -35,6 +36,7 @@ export function VoiceLibraryPicker({
 	const [isCloning, setIsCloning] = useState(voices.length === 0);
 	const [isUploading, setIsUploading] = useState(false);
 	const [draftName, setDraftName] = useState("");
+	const [draftReferenceText, setDraftReferenceText] = useState("");
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const handleSelectChange = (value: string) => {
@@ -43,7 +45,7 @@ export function VoiceLibraryPicker({
 			return;
 		}
 		const voice = voices.find((v) => v.id === value);
-		onSelect(voice ?? null);
+		onSelect(voice?.referenceText?.trim() ? voice : null);
 	};
 
 	const handleRemove = (id: string) => {
@@ -60,11 +62,13 @@ export function VoiceLibraryPicker({
 				id: generateUUID(),
 				name: result.name,
 				path: result.path,
+				referenceText: draftReferenceText.trim(),
 				createdAt: Date.now(),
 			};
 			addVoice(voice);
 			onSelect(voice);
 			setDraftName("");
+			setDraftReferenceText("");
 			setIsCloning(false);
 			toast.success(`Voice "${voice.name}" saved to your library`);
 		} catch (err) {
@@ -92,8 +96,12 @@ export function VoiceLibraryPicker({
 						<SelectContent>
 							<SelectItem value={NONE_VALUE}>None</SelectItem>
 							{voices.map((voice) => (
-								<SelectItem key={voice.id} value={voice.id}>
-									{voice.name}
+								<SelectItem
+									key={voice.id}
+									value={voice.id}
+									disabled={!voice.referenceText?.trim()}
+								>
+									{voice.name}{!voice.referenceText?.trim() ? " (needs reference text)" : ""}
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -128,12 +136,23 @@ export function VoiceLibraryPicker({
 						placeholder="Voice name (e.g. Alice)"
 						className="text-[10px]"
 					/>
+					<Textarea
+						value={draftReferenceText}
+						onChange={(e) => setDraftReferenceText(e.target.value)}
+						placeholder="Exact words spoken in the audio sample"
+						rows={2}
+						className="text-[10px]"
+						aria-label="Reference audio transcript"
+					/>
+					<p className="text-[9px] text-muted-foreground">
+						Enter the exact transcript of the uploaded sample for OmniVoice cloning.
+					</p>
 					<div className="flex gap-1.5">
 						<Button
 							variant="outline"
 							size="sm"
 							className="flex-1 text-[10px] h-7"
-							disabled={isUploading}
+							disabled={isUploading || !draftReferenceText.trim()}
 							onClick={() => fileInputRef.current?.click()}
 						>
 							{isUploading ? (

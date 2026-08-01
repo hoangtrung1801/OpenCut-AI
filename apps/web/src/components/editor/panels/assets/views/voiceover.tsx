@@ -78,6 +78,7 @@ export function VoiceoverView() {
 			text,
 			language,
 			speakerWav: clonedVoice?.path,
+			referenceText: clonedVoice?.referenceText,
 			speaker: clonedVoice ? undefined : voiceGender,
 			speed,
 		});

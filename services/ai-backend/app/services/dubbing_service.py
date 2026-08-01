@@ -89,7 +89,7 @@ class DubbingJobManager:
         job_id = uuid4()
         job = _MutableJob(
             request=request,
-            total_clips=len(request.display_segments),
+            total_clips=len(request.audio_segments),
         )
         self._jobs[job_id] = job
         self._tasks[job_id] = asyncio.create_task(self.run(job_id))
@@ -230,7 +230,7 @@ class DubbingJobManager:
                     end=end,
                     duration=duration,
                     audio_url=(
-                        f"/generated/dubbing/{job_id}/clips/{task.id}.wav"
+                        f"/generated/{job_id}/clips/{task.id}.wav"
                     ),
                     timing_warning=warning,
                 )
@@ -238,14 +238,14 @@ class DubbingJobManager:
         ordered_clips = [results[clip.id] for clip in plan.clips]
         captions = [
             DubbingCaptionResult(
-                id=clip.id,
-                parent_id=clip.parent_id,
-                part_index=clip.part_index,
-                text=clip.text,
-                start=clip.start,
-                end=clip.end,
+                id=display.id,
+                parent_id=display.parent_id,
+                part_index=display.part_index,
+                text=display.translation,
+                start=display.start,
+                end=display.end,
             )
-            for clip in ordered_clips
+            for display in job.request.display_segments
         ]
         return DubbingResult(
             clips=ordered_clips,

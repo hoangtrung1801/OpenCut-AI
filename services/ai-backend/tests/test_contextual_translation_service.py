@@ -25,6 +25,7 @@ def limits(**overrides):
         "target_length_multiplier": 1.0,
         "split_passes": 3,
         "max_split_passes": 8,
+        "min_caption_duration": 0.8,
         "gap_close_seconds": 1.0,
     }
     values.update(overrides)
@@ -86,6 +87,53 @@ class ContextExtractionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ContextualTranslationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_translation_prompt_requires_concise_inline_target_text(self):
+        backend = AsyncMock()
+        backend.generate_json.side_effect = [
+            {"theme": "Theme.", "terms": []},
+            {
+                "translations": [
+                    {"id": 0, "translation": "Một dòng tự nhiên."},
+                    {"id": 1, "translation": "Dòng tiếp theo."},
+                ]
+            },
+        ]
+        service = ContextualTranslationService(
+            backend=backend,
+            limits=limits(batch_chars=1_000, batch_segments=10),
+        )
+
+        await service.translate(request())
+
+        prompt = backend.generate_json.await_args_list[1].kwargs["prompt"]
+        self.assertIn("concise, natural subtitle", prompt)
+        self.assertIn("Do not include newline characters", prompt)
+        self.assertIn("continues across adjacent IDs", prompt)
+        self.assertIn("Do not repeat words or meaning", prompt)
+
+    async def test_translation_validation_collapses_newlines_and_repeated_whitespace(self):
+        backend = AsyncMock()
+        backend.generate_json.side_effect = [
+            {"theme": "Theme.", "terms": []},
+            {
+                "translations": [
+                    {"id": 0, "translation": "  Một dòng\n tự nhiên.  "},
+                    {"id": 1, "translation": "Dòng   tiếp theo."},
+                ]
+            },
+        ]
+        service = ContextualTranslationService(
+            backend=backend,
+            limits=limits(batch_chars=1_000, batch_segments=10),
+        )
+
+        result = await service.translate(request())
+
+        self.assertEqual(
+            [segment.translation for segment in result.segments],
+            ["Một dòng tự nhiên.", "Dòng tiếp theo."],
+        )
+
     async def test_translates_batches_with_neighbors_and_matching_terms(self):
         backend = AsyncMock()
         backend.generate_json.side_effect = [

@@ -5,6 +5,7 @@ import type {
 	TTimelineViewState,
 } from "@/types/project";
 import type { TScene } from "@/types/timeline";
+import type { PersistedTranscript } from "@/types/transcript";
 
 export interface StorageAdapter<T> {
 	get(key: string): Promise<T | null>;
@@ -77,8 +78,11 @@ export interface StorageConfig {
 	projectsDb: string;
 	mediaDb: string;
 	savedSoundsDb: string;
+	transcriptsDb: string;
 	version: number;
 }
+
+export type SerializedTranscript = PersistedTranscript;
 
 // TypeScript type augmentation to add async iterator methods to FileSystemDirectoryHandle
 // These methods are part of the File System Access API spec but may not be in all type definitions

@@ -4,8 +4,9 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+from pydantic import ValidationError
 
-from app import SUPPORTED_LANGUAGES, TTSService
+from app import SUPPORTED_LANGUAGES, TTSGenerateRequest, TTSService
 
 
 class OmniVoiceAdapterTest(unittest.TestCase):
@@ -15,16 +16,25 @@ class OmniVoiceAdapterTest(unittest.TestCase):
     def setUp(self):
         self.service = TTSService()
 
+    def test_reference_audio_requires_reference_text(self):
+        with self.assertRaises(ValidationError):
+            TTSGenerateRequest(
+                text="Hello",
+                speaker_wav="voices/alice.wav",
+            )
+
     def test_reference_audio_uses_voice_cloning(self):
         kwargs = self.service._build_generation_kwargs(
             text="Hello",
             language="en",
             speaker_wav="voices/alice.wav",
+            reference_text="Hello from Alice.",
             speaker=None,
             speed=1.2,
         )
 
         self.assertEqual(kwargs["ref_audio"], "voices/alice.wav")
+        self.assertEqual(kwargs["ref_text"], "Hello from Alice.")
         self.assertNotIn("instruct", kwargs)
         self.assertEqual(kwargs["language"], "en")
         self.assertEqual(kwargs["speed"], 1.2)
@@ -34,6 +44,7 @@ class OmniVoiceAdapterTest(unittest.TestCase):
             text="Hello",
             language="de",
             speaker_wav=None,
+            reference_text=None,
             speaker="female",
             speed=1.0,
         )
@@ -47,6 +58,7 @@ class OmniVoiceAdapterTest(unittest.TestCase):
             text="Hello",
             language="en",
             speaker_wav=None,
+            reference_text=None,
             speaker=None,
             speed=1.0,
         )

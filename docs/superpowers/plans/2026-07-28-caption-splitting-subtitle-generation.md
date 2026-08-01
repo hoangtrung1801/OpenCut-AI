@@ -14,6 +14,7 @@
 - Default maximum caption length is exactly `32`.
 - Target length multiplier defaults to exactly `1.0`.
 - Split processing uses `3` normal passes and allows up to `8` adaptive passes.
+- Split display cues default to a minimum duration of exactly `0.8` seconds.
 - Positive gaps strictly smaller than `1.0` second may be closed.
 - Contextual alignment uses the existing configured LLM backend with exactly `2` correction retries after the first attempt.
 - Keep the existing `segments` response field backward compatible.
@@ -139,6 +140,7 @@ CONTEXT_TRANSLATION_MAX_CAPTION_CHARS: int = 32
 CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER: float = 1.0
 CONTEXT_TRANSLATION_SPLIT_PASSES: int = 3
 CONTEXT_TRANSLATION_MAX_SPLIT_PASSES: int = 8
+CONTEXT_TRANSLATION_MIN_CAPTION_DURATION: float = 0.8
 CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS: float = 1.0
 ```
 
@@ -470,15 +472,19 @@ Test that:
 - high-expansion output can continue through `max_split_passes == 8`;
 - output IDs and `part_index` are sequential;
 - every output range stays within the parent segment; and
-- a caption still oversized after the eighth pass raises `CaptionPolicyError`
-  without returning partial output.
+- terminal translation overflow uses deterministic sentence, word, and
+  character display splitting with proportional timing while preserving the
+  original audio segment.
 
 - [ ] **Step 8: Implement recursive processing and gap closing**
 
 Run split/check passes in source order. Start with three passes and continue
 adaptively through eight when any part remains oversized. A split part receives
-a fresh alignment request for its two new source parts. After all parents are complete, flatten,
-renumber, validate, and call `close_short_gaps`.
+a fresh alignment request for its two new source parts. If a source cannot be
+split or a target remains oversized, split the target text deterministically at
+sentence, word, and character boundaries with proportional timing. Keep the
+audio segment unsplit. After all parents are complete, flatten, renumber,
+validate, and call `close_short_gaps`.
 
 - [ ] **Step 9: Run post-processor tests**
 

@@ -169,6 +169,34 @@ service_is_running() {
     esac
 }
 
+stream_logs() {
+    local stream_pids=()
+
+    cleanup_log_streams() {
+        for stream_pid in "${stream_pids[@]}"; do
+            if kill -0 "$stream_pid" 2>/dev/null; then
+                kill "$stream_pid" 2>/dev/null || true
+            fi
+        done
+        wait 2>/dev/null || true
+    }
+
+    trap cleanup_log_streams EXIT INT TERM
+
+    for spec in "${SERVICE_SPECS[@]}"; do
+        IFS='|' read -r service_name _port _target _health_url <<< "$spec"
+        (
+            tail -n +1 -f "$LOG_DIR/$service_name.log" |
+                while IFS= read -r line; do
+                    printf '\033[0;36m%s\033[0m %s\n' "[$service_name]" "$line"
+                done
+        ) &
+        stream_pids+=("$!")
+    done
+
+    wait
+}
+
 log_info "Preparing six local services. AI backend and web are excluded."
 
 for spec in "${SERVICE_SPECS[@]}"; do
@@ -192,7 +220,7 @@ done
 
 echo ""
 log_info "Streaming service logs below. Press Ctrl-C to stop all services."
-tail -n +1 -f "$LOG_DIR"/*.log &
+stream_logs &
 LOG_TAIL_PID="$!"
 
 echo ""

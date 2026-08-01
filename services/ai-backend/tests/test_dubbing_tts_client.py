@@ -56,7 +56,11 @@ class DubbingTTSClientTest(unittest.IsolatedAsyncioTestCase):
         client = make_client(handler)
         with tempfile.TemporaryDirectory() as directory:
             for index, voice in enumerate((
-                CloneVoice(mode="clone", speaker_wav="generated/voices/alice.wav"),
+                CloneVoice(
+                    mode="clone",
+                    speaker_wav="generated/voices/alice.wav",
+                    reference_text="Hello from Alice.",
+                ),
                 DesignVoice(mode="design", speaker="warm narrator"),
                 AutoVoice(mode="auto"),
             )):
@@ -69,6 +73,7 @@ class DubbingTTSClientTest(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(seen[0]["speaker_wav"], "generated/voices/alice.wav")
+        self.assertEqual(seen[0]["reference_text"], "Hello from Alice.")
         self.assertEqual(seen[1]["speaker"], "warm narrator")
         self.assertNotIn("speaker_wav", seen[2])
         self.assertNotIn("speaker", seen[2])

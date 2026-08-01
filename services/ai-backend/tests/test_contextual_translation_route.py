@@ -59,6 +59,20 @@ class ContextualTranslationRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_post_process_route_maps_policy_failure_to_422(self):
         with patch(
             "app.routes.translation.caption_processor.process",
+            new=AsyncMock(side_effect=CaptionPolicyError("caption exceeds the configured display length")),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await post_process_captions(postprocess_request())
+
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertEqual(
+            raised.exception.detail,
+            "Caption policy validation failed: the translated caption is still too long after splitting.",
+        )
+
+    async def test_post_process_route_keeps_unknown_policy_details_private(self):
+        with patch(
+            "app.routes.translation.caption_processor.process",
             new=AsyncMock(side_effect=CaptionPolicyError("private detail")),
         ):
             with self.assertRaises(HTTPException) as raised:

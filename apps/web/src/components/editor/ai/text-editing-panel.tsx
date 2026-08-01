@@ -10,7 +10,10 @@ import { cn } from "@/utils/ui";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { aiClient } from "@/lib/ai-client";
 import { hasMediaId } from "@/lib/timeline";
-import { getTranslationTabAfterChange } from "@/lib/transcription/translation-control";
+import {
+	getTranslationDisplaySegments,
+	getTranslationTabAfterChange,
+} from "@/lib/transcription/translation-control";
 import type { TimelineElement } from "@/types/timeline";
 import {
 	TranscriptionPanel,
@@ -184,6 +187,10 @@ export function TextEditingPanel({ className }: { className?: string }) {
 		useTranscriptStore.getState().setSpeakerName(speakerId, newName);
 	}, []);
 
+	const handleEditSegment = useCallback((segmentId: string, text: string) => {
+		useTranscriptStore.getState().updateSegment(Number(segmentId), { text });
+	}, []);
+
 	const originalLanguageName =
 		LANGUAGES.find((l) => l.code === storeLanguage)?.name ?? storeLanguage ?? "Original";
 
@@ -192,6 +199,7 @@ export function TextEditingPanel({ className }: { className?: string }) {
 		() =>
 			storeSegments.map((seg) => ({
 				id: String(seg.id),
+				text: seg.text,
 				startTime: seg.start,
 				endTime: seg.end,
 				words: seg.words.map((w, i) => ({
@@ -266,7 +274,8 @@ export function TextEditingPanel({ className }: { className?: string }) {
 					progress={progress}
 					currentTime={currentTime}
 					onTranscribe={handleTranscribe}
-					onSeekTo={handleSeekTo}
+						onSeekTo={handleSeekTo}
+						onEditSegment={handleEditSegment}
 					onDeleteSegments={handleDeleteSegments}
 					onCutWords={handleCutWords}
 					onReorderSegments={handleReorderSegments}
@@ -321,9 +330,18 @@ function TranslationView({
 	currentTime: number;
 	onSeekTo: (time: number) => void;
 }) {
+	const [editingId, setEditingId] = useState<number | null>(null);
+	const [editingText, setEditingText] = useState("");
 	const translation = useTranscriptStore((s) =>
 		s.translations.find((t) => t.languageCode === languageCode),
 	);
+	const commitEdit = () => {
+		const text = editingText.trim();
+		if (editingId !== null && text) {
+			useTranscriptStore.getState().updateTranslationSegment(languageCode, editingId, text);
+		}
+		setEditingId(null);
+	};
 
 	if (!translation) {
 		return (
@@ -334,18 +352,39 @@ function TranslationView({
 			</div>
 		);
 	}
+	const displaySegments = getTranslationDisplaySegments(translation);
 
 	return (
 		<ScrollArea className="flex-1">
 			<div className="flex flex-col gap-0.5 p-3">
-				{translation.segments.map((seg, idx) => {
+				{displaySegments.map((seg, idx) => {
 					const isActive =
 						currentTime >= seg.start && currentTime < seg.end;
-					return (
-						<button
-							key={seg.id ?? idx}
-							type="button"
-							onClick={() => onSeekTo(seg.start)}
+						return editingId === seg.id ? (
+							<textarea
+								key={`${seg.parent_id}-${seg.part_index}-${seg.id ?? idx}`}
+								value={editingText}
+								onChange={(event) => setEditingText(event.target.value)}
+								onBlur={commitEdit}
+								onKeyDown={(event) => {
+									if (event.key === "Escape") setEditingId(null);
+									if (event.key === "Enter" && !event.shiftKey) {
+										event.preventDefault();
+										commitEdit();
+									}
+								}}
+								autoFocus
+								rows={2}
+								className="w-full resize-none rounded-md border border-primary/40 bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-1 focus:ring-primary/50"
+							/>
+						) : (
+							<button
+								key={`${seg.parent_id}-${seg.part_index}-${seg.id ?? idx}`}
+								type="button"
+								onClick={() => {
+									setEditingId(seg.id);
+									setEditingText(seg.translation);
+								}}
 							className={cn(
 								"text-left rounded-md px-3 py-2 text-sm leading-relaxed transition-colors",
 								isActive
@@ -356,9 +395,9 @@ function TranslationView({
 							<span className="text-[10px] font-mono tabular-nums text-muted-foreground mr-2">
 								{formatTimestamp(seg.start)}
 							</span>
-							{seg.text}
-						</button>
-					);
+								{seg.translation}
+							</button>
+						);
 				})}
 			</div>
 		</ScrollArea>

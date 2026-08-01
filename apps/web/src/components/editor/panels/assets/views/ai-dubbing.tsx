@@ -19,6 +19,32 @@ import { toast } from "sonner";
 import { VoiceLibraryPicker } from "@/components/editor/ai/voice-library-picker";
 import type { ClonedVoice } from "@/stores/voice-library-store";
 import { OMNIVOICE_LANGUAGES } from "@/constants/omnivoice-constants";
+import { aiClient } from "@/lib/ai-client";
+import { ensureTargetTranslation } from "@/lib/transcription/dubbing-runner";
+import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+
+interface DubbingReviewSentence {
+	id: number;
+	start: number;
+	source: string;
+	translation: string;
+}
+
+function formatTimestamp(seconds: number): string {
+	const minutes = Math.floor(seconds / 60);
+	const remainder = Math.floor(seconds % 60);
+	return `${minutes}:${remainder.toString().padStart(2, "0")}`;
+}
 
 const ENGINES: Array<{
 	value: DubbingEngine;
@@ -42,8 +68,11 @@ export function AIDubbingPanel() {
 	const [engine, setEngine] = useState<DubbingEngine>("local");
 	const [voiceDesign, setVoiceDesign] = useState("");
 	const [clonedVoice, setClonedVoice] = useState<ClonedVoice | null>(null);
+	const [reviewOpen, setReviewOpen] = useState(false);
+	const [reviewLoading, setReviewLoading] = useState(false);
+	const [reviewSentences, setReviewSentences] = useState<DubbingReviewSentence[]>([]);
 
-	const handleDub = useCallback(() => {
+	const handleDub = useCallback(async () => {
 		if (segments.length === 0) {
 			toast.error("No transcript available. Transcribe first.");
 			return;
@@ -52,13 +81,57 @@ export function AIDubbingPanel() {
 			toast.error("Target language is same as source.");
 			return;
 		}
+
+		setReviewLoading(true);
+		try {
+			const transcript = useTranscriptStore.getState();
+			let translation = transcript.translations.find(
+				(item) => item.languageCode.toLowerCase() === targetLanguage.toLowerCase(),
+			);
+			if (!translation) {
+				translation = await ensureTargetTranslation({
+					transcript,
+					targetLanguage,
+					translate: (request) => aiClient.translateTranscript(request),
+				});
+				useTranscriptStore.getState().addTranslation(translation);
+			}
+
+			const sourceById = new Map(
+				transcript.segments.map((segment) => [segment.id, segment.text]),
+			);
+			setReviewSentences(
+				translation.segments.map((segment) => ({
+					id: segment.id,
+					start: segment.start,
+					source: sourceById.get(segment.id) ?? "",
+					translation: segment.text,
+				})),
+			);
+			setReviewOpen(true);
+		} catch (error) {
+			toast.error("Unable to prepare dubbing", {
+				description: error instanceof Error ? error.message : "Translation failed.",
+			});
+		} finally {
+			setReviewLoading(false);
+		}
+	}, [segments, language, targetLanguage]);
+
+	const handleConfirmReview = useCallback(() => {
+		const sentenceOverrides = Object.fromEntries(
+			reviewSentences.map((sentence) => [sentence.id, sentence.translation.trim()]),
+		);
+		setReviewOpen(false);
 		runDubbing({
 			targetLanguage,
 			engine,
 			voiceDesign,
 			voiceClonePath: clonedVoice?.path,
+			voiceCloneReferenceText: clonedVoice?.referenceText,
+			sentenceOverrides,
 		});
-	}, [segments, language, targetLanguage, engine, voiceDesign, clonedVoice, runDubbing]);
+	}, [reviewSentences, targetLanguage, engine, voiceDesign, clonedVoice, runDubbing]);
 
 	return (
 		<div className="flex flex-col gap-4 p-3">
@@ -201,7 +274,7 @@ export function AIDubbingPanel() {
 
 			<button
 				type="button"
-				disabled={isDubbing || segments.length === 0}
+				disabled={isDubbing || reviewLoading || segments.length === 0}
 				onClick={handleDub}
 				className={cn(
 					"w-full rounded-md py-2 text-xs font-medium transition-colors",
@@ -210,8 +283,83 @@ export function AIDubbingPanel() {
 						: "bg-primary text-primary-foreground hover:bg-primary/90",
 				)}
 			>
-				{isDubbing ? "Dubbing..." : "Start Dubbing"}
+				{isDubbing ? "Dubbing..." : reviewLoading ? "Preparing review..." : "Start Dubbing"}
 			</button>
+
+			<DubbingReviewDialog
+				open={reviewOpen}
+				onOpenChange={setReviewOpen}
+				sentences={reviewSentences}
+				onSentencesChange={setReviewSentences}
+				onConfirm={handleConfirmReview}
+			/>
 		</div>
+	);
+}
+
+function DubbingReviewDialog({
+	open,
+	onOpenChange,
+	sentences,
+	onSentencesChange,
+	onConfirm,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	sentences: DubbingReviewSentence[];
+	onSentencesChange: (sentences: DubbingReviewSentence[]) => void;
+	onConfirm: () => void;
+}) {
+	const hasEmptySentence =
+		sentences.length === 0 || sentences.some((sentence) => !sentence.translation.trim());
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className="flex max-h-[85vh] max-w-2xl flex-col p-0">
+				<DialogHeader>
+					<DialogTitle>Review dubbing sentences</DialogTitle>
+					<DialogDescription>
+						Edit the complete sentences used for speech generation. Caption line
+						splits and timing stay unchanged.
+					</DialogDescription>
+				</DialogHeader>
+				<DialogBody className="min-h-0 overflow-y-auto">
+					{sentences.map((sentence, index) => (
+						<div key={sentence.id} className="flex flex-col gap-2 rounded-md border p-3">
+							<div className="flex items-center justify-between gap-2">
+								<span className="text-xs font-medium">Sentence {index + 1}</span>
+								<span className="text-[10px] font-mono text-muted-foreground">
+									{formatTimestamp(sentence.start)}
+								</span>
+							</div>
+							<p className="text-[10px] text-muted-foreground">{sentence.source}</p>
+							<Textarea
+								value={sentence.translation}
+								onChange={(event) =>
+									onSentencesChange(
+										sentences.map((item) =>
+											item.id === sentence.id
+												? { ...item, translation: event.target.value }
+												: item,
+										),
+								)
+								}
+								rows={2}
+								aria-label={`Dubbing sentence ${index + 1}`}
+								className="text-sm"
+							/>
+						</div>
+					))}
+				</DialogBody>
+				<DialogFooter>
+					<Button variant="outline" onClick={() => onOpenChange(false)}>
+						Cancel
+					</Button>
+					<Button disabled={hasEmptySentence} onClick={onConfirm}>
+						Confirm dubbing
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }

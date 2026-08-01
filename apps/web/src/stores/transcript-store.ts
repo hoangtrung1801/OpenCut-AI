@@ -2,45 +2,24 @@ import { create } from "zustand";
 import type {
 	TranscriptionSegment,
 	SeparatedAudio,
-	DisplayCaptionSegment,
 	EmotionSegment,
 	FillerWord,
 	SilenceRegion,
 	Chapter,
 } from "@/types/ai";
+import type {
+	PersistedTranscript,
+	SubtitleTrackData,
+	TranslatedTranscriptData,
+} from "@/types/transcript";
 
-export interface TranslatedTranscript {
-	languageCode: string;
-	languageName: string;
-	segments: TranscriptionSegment[];
-	displaySegments?: DisplayCaptionSegment[];
-}
+export type TranslatedTranscript = TranslatedTranscriptData;
+export type SubtitleTrackInfo = SubtitleTrackData;
 
-export interface SubtitleTrackInfo {
-	trackId: string;
-	language: string;
-}
-
-interface TranscriptState {
-	segments: TranscriptionSegment[];
+export interface TranscriptState extends PersistedTranscript {
 	isTranscribing: boolean;
 	progress: number;
-	language: string;
-	duration: number;
-	sourceMediaId: string | null;
-	separatedAudio: SeparatedAudio | null;
 	selectedSegmentIds: Set<number>;
-	fillers: FillerWord[];
-	silences: SilenceRegion[];
-	chapters: Chapter[];
-	translations: TranslatedTranscript[];
-	subtitleTracks: SubtitleTrackInfo[];
-	/** Map from raw speaker ID (e.g. "SPEAKER_A") to user-defined name */
-	speakerNames: Record<string, string>;
-	/** Map from speaker ID to visual position ("left" | "right" | "center") */
-	speakerPositions: Record<string, "left" | "right" | "center">;
-	/** Emotion annotations from speechbrain / energy analysis */
-	emotions: EmotionSegment[];
 
 	setSegments: (segments: TranscriptionSegment[]) => void;
 	addSegment: (segment: TranscriptionSegment) => void;
@@ -66,6 +45,11 @@ interface TranscriptState {
 	setSilences: (silences: SilenceRegion[]) => void;
 	setChapters: (chapters: Chapter[]) => void;
 	addTranslation: (translation: TranslatedTranscript) => void;
+	updateTranslationSegment: (
+		languageCode: string,
+		segmentId: number,
+		text: string,
+	) => void;
 	removeTranslation: (languageCode: string) => void;
 	setSubtitleTracks: (tracks: SubtitleTrackInfo[]) => void;
 	addSubtitleTrack: (track: SubtitleTrackInfo) => void;
@@ -74,6 +58,7 @@ interface TranscriptState {
 	setSpeakerNames: (names: Record<string, string>) => void;
 	setSpeakerPosition: (speakerId: string, position: "left" | "right" | "center") => void;
 	setEmotions: (emotions: EmotionSegment[]) => void;
+	restorePersistedTranscript: (transcript: PersistedTranscript) => void;
 	/** Assign speaker IDs to segments by matching diarization time ranges */
 	applySpeakerDiarization: (
 		speakerSegments: { speaker: string; start: number; end: number }[],
@@ -104,6 +89,14 @@ export const useTranscriptStore = create<TranscriptState>()((set, get) => ({
 	...initialState,
 
 	setSegments: (segments) => set({ segments }),
+
+	restorePersistedTranscript: (transcript) =>
+		set({
+			...transcript,
+			isTranscribing: false,
+			progress: 0,
+			selectedSegmentIds: new Set<number>(),
+		}),
 
 	addSegment: (segment) =>
 		set((state) => ({ segments: [...state.segments, segment] })),
@@ -191,6 +184,39 @@ export const useTranscriptStore = create<TranscriptState>()((set, get) => ({
 				),
 				translation,
 			],
+		})),
+
+	updateTranslationSegment: (languageCode, segmentId, text) =>
+		set((state) => ({
+			translations: state.translations.map((translation) => {
+				if (translation.languageCode !== languageCode) return translation;
+				if (!translation.displaySegments?.length) {
+					return {
+						...translation,
+						segments: translation.segments.map((segment) =>
+							segment.id === segmentId ? { ...segment, text } : segment,
+						),
+					};
+				}
+
+				const displaySegments = translation.displaySegments.map((segment) =>
+					segment.id === segmentId ? { ...segment, translation: text } : segment,
+				);
+				const edited = displaySegments.find((segment) => segment.id === segmentId);
+				if (!edited) return translation;
+				const parentText = displaySegments
+					.filter((segment) => segment.parent_id === edited.parent_id)
+					.sort((a, b) => a.part_index - b.part_index)
+					.map((segment) => segment.translation)
+					.join(" ");
+				return {
+					...translation,
+					displaySegments,
+					segments: translation.segments.map((segment) =>
+						segment.id === edited.parent_id ? { ...segment, text: parentText } : segment,
+					),
+				};
+			}),
 		})),
 
 	removeTranslation: (languageCode) =>

@@ -13,8 +13,10 @@ export interface DubbingOptions {
 	voiceId?: string;
 	voiceDesign?: string;
 	voiceClonePath?: string;
+	voiceCloneReferenceText?: string;
 	pace?: number;
 	segmentIndices?: number[];
+	sentenceOverrides?: Record<number, string>;
 }
 
 export interface DubbingProgress {
@@ -29,10 +31,12 @@ export function buildLocalTTSRequest(
 	language: string,
 	voiceDesign?: string,
 	voiceClonePath?: string,
+	voiceCloneReferenceText?: string,
 ): TTSRequest {
 	const request: TTSRequest = { text, language };
 	if (voiceClonePath) {
 		request.speakerWav = voiceClonePath;
+		request.referenceText = voiceCloneReferenceText?.trim();
 		return request;
 	}
 	const speaker = voiceDesign?.trim();
@@ -62,8 +66,10 @@ export function useAIDubbing() {
 			targetLanguage: options.targetLanguage,
 			voiceDesign: options.voiceDesign,
 			voiceClonePath: options.voiceClonePath,
+			voiceCloneReferenceText: options.voiceCloneReferenceText,
 			pace: options.pace,
 			segmentIndices: options.segmentIndices,
+			sentenceOverrides: options.sentenceOverrides,
 		});
 	}, [segments.length]);
 

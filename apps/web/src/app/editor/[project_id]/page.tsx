@@ -29,6 +29,7 @@ import { useEffect, useRef } from "react";
 import type { TextElement } from "@/types/timeline";
 import { BackgroundTasksWidget } from "@/components/editor/background-tasks";
 import { CommandPalette } from "@/components/editor/command-palette";
+import { useTranscriptPersistence } from "@/hooks/use-transcript-persistence";
 
 export default function Editor() {
 	const params = useParams();
@@ -62,6 +63,8 @@ function EditorLayout() {
 	const transcriptSegments = useTranscriptStore((s) => s.segments);
 	const isTranscribing = useTranscriptStore((s) => s.isTranscribing);
 	const editor = useEditor();
+	const projectId = editor.project.getActiveOrNull()?.metadata.id ?? null;
+	const transcriptHydrated = useTranscriptPersistence(projectId);
 	const hasTimelineContent = editor.timeline.getTracks().some(
 		(track) => track.elements.length > 0,
 	);
@@ -73,11 +76,15 @@ function EditorLayout() {
 	const hasTranscript = hasMedia && (transcriptSegments.length > 0 || isTranscribing);
 
 	// Restore transcript from existing caption text elements on the timeline
-	const hasRestoredTranscript = useRef(false);
+	const restoredTranscriptProjectId = useRef<string | null>(null);
 	useEffect(() => {
-		if (hasRestoredTranscript.current) return;
+		if (!transcriptHydrated || !projectId) return;
+		if (restoredTranscriptProjectId.current === projectId) return;
 		const storeSegments = useTranscriptStore.getState().segments;
-		if (storeSegments.length > 0) return;
+		if (storeSegments.length > 0) {
+			restoredTranscriptProjectId.current = projectId;
+			return;
+		}
 
 		const tracks = editor.timeline.getTracks();
 
@@ -124,10 +131,10 @@ function EditorLayout() {
 		});
 
 		if (segments.length > 0) {
-			hasRestoredTranscript.current = true;
+			restoredTranscriptProjectId.current = projectId;
 			useTranscriptStore.getState().setSegments(segments);
 		}
-	}, [editor]);
+	}, [editor, projectId, transcriptHydrated]);
 
 	// Clear transcript when all video/audio elements are removed (any deletion path)
 	useEffect(() => {

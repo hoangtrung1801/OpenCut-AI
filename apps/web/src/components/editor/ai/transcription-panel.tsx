@@ -55,6 +55,7 @@ export interface TranscriptWord {
 
 export interface TranscriptSegment {
 	id: string;
+	text: string;
 	startTime: number;
 	endTime: number;
 	words: TranscriptWord[];
@@ -78,6 +79,7 @@ interface TranscriptionPanelProps {
 	currentTime: number;
 	onTranscribe: () => void;
 	onSeekTo: (time: number) => void;
+	onEditSegment?: (segmentId: string, text: string) => void;
 	onWordClick?: (word: TranscriptWord) => void;
 	onDeleteSegments?: (segmentIds: string[], cuts: TimeRange[]) => void;
 	onCutWords?: (
@@ -122,6 +124,13 @@ function isSegmentActive(segment: TranscriptSegment, currentTime: number): boole
 	return currentTime >= segment.startTime && currentTime < segment.endTime;
 }
 
+function isSegmentTextEdited(segment: TranscriptSegment): boolean {
+	const wordsText = segment.words.map((word) => word.text).join("").trim();
+	const spacedWordsText = segment.words.map((word) => word.text).join(" ").trim();
+	const text = segment.text.trim();
+	return text !== wordsText && text !== spacedWordsText;
+}
+
 /**
  * Adapt the panel's TranscriptWord to the ai.ts TranscriptionWord shape
  * so we can use text-timeline-sync functions.
@@ -140,6 +149,7 @@ export function TranscriptionPanel({
 	currentTime,
 	onTranscribe,
 	onSeekTo,
+	onEditSegment,
 	onWordClick,
 	onDeleteSegments,
 	onCutWords,
@@ -153,9 +163,23 @@ export function TranscriptionPanel({
 }: TranscriptionPanelProps) {
 	const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
 	const [editingName, setEditingName] = useState("");
+	const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+	const [editingSegmentText, setEditingSegmentText] = useState("");
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const segmentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 	const lastAutoScrolledSegment = useRef<string | null>(null);
+
+	const commitSegmentEdit = useCallback(() => {
+		if (!editingSegmentId) return;
+		const text = editingSegmentText.trim();
+		if (text && onEditSegment) onEditSegment(editingSegmentId, text);
+		setEditingSegmentId(null);
+	}, [editingSegmentId, editingSegmentText, onEditSegment]);
+
+	const startSegmentEdit = useCallback((segment: TranscriptSegment) => {
+		setEditingSegmentId(segment.id);
+		setEditingSegmentText(segment.text);
+	}, []);
 
 	// Auto-scroll to the active segment during playback
 	const activeSegmentId = useMemo(() => {
@@ -378,7 +402,7 @@ export function TranscriptionPanel({
 								)}{" "}
 								words
 							</Badge>
-						)}
+																							)}
 					</div>
 
 					<div className="flex items-center gap-1.5">
@@ -404,7 +428,7 @@ export function TranscriptionPanel({
 									corresponding timeline ranges
 								</TooltipContent>
 							</Tooltip>
-						)}
+																									)}
 
 						{/* Detect Speakers button — shown as re-detect if speakers already assigned */}
 						{status === "complete" && segments.length > 0 && onDetectSpeakers && (
@@ -422,8 +446,8 @@ export function TranscriptionPanel({
 								) : segments.some((s) => s.speaker) ? (
 									"Re-detect speakers"
 								) : (
-									"Detect speakers"
-								)}
+																												"Detect speakers"
+																									)}
 							</Button>
 						)}
 
@@ -596,7 +620,7 @@ export function TranscriptionPanel({
 						<DragDropContext onDragEnd={handleDragEnd}>
 							<Droppable droppableId="transcript-segments">
 								{(droppableProvided, droppableSnapshot) => (
-									<div
+											<div
 										ref={droppableProvided.innerRef}
 										{...droppableProvided.droppableProps}
 										className={cn(
@@ -662,12 +686,11 @@ export function TranscriptionPanel({
 															<div
 																role="button"
 																tabIndex={0}
-																onClick={(e) =>
-																	handleSegmentClick(
-																		segment.id,
-																		e,
-																	)
-																}
+																			onClick={(e) =>
+																										(e.shiftKey || e.ctrlKey || e.metaKey)
+																											? handleSegmentClick(segment.id, e)
+																											: startSegmentEdit(segment)
+																		}
 																onKeyDown={(
 																	e,
 																) => {
@@ -717,7 +740,7 @@ export function TranscriptionPanel({
 																</div>
 
 																{/* Content */}
-																<div className="flex-1 min-w-0">
+												<div className="flex-1 min-w-0">
 																	{/* Speaker + timestamp */}
 																	<div className="flex items-center gap-2 mb-1">
 																		{segment.speaker && (
@@ -784,9 +807,42 @@ export function TranscriptionPanel({
 																		</button>
 																	</div>
 
-																	{/* Words */}
-																	<p className="text-sm leading-relaxed">
-																		{segment.words.map(
+													{/* Segment text */}
+													{editingSegmentId === segment.id ? (
+														<textarea
+															value={editingSegmentText}
+															onChange={(e) => setEditingSegmentText(e.target.value)}
+															onBlur={commitSegmentEdit}
+															onClick={(e) => e.stopPropagation()}
+															onKeyDown={(e) => {
+																if (e.key === "Escape") {
+																	e.preventDefault();
+																	setEditingSegmentId(null);
+																} else if (e.key === "Enter" && !e.shiftKey) {
+																	e.preventDefault();
+																	commitSegmentEdit();
+																}
+															}}
+															autoFocus
+															rows={2}
+															className="w-full resize-none rounded-md border border-primary/40 bg-background px-2 py-1.5 text-sm leading-relaxed outline-none focus:ring-1 focus:ring-primary/50"
+														/>
+													) : isSegmentTextEdited(segment) ? (
+														<button
+														type="button"
+														onClick={(e) => {
+															e.stopPropagation();
+															startSegmentEdit(segment);
+														}}
+														className="block w-full text-left text-sm leading-relaxed rounded-sm hover:bg-accent/50 px-1 -mx-1"
+														title="Click to edit transcript"
+													>
+																												{segment.text}
+																							</button>
+																									) : null}
+														{/* Keep word timing actions for unedited segments. */}
+														<div className={cn(isSegmentTextEdited(segment) ? "hidden" : "text-sm leading-relaxed")}>
+														{segment.words.map(
 																			(
 																				word,
 																			) => {
@@ -891,11 +947,11 @@ export function TranscriptionPanel({
 																								)}
 																							</ContextMenuItem>
 																						</ContextMenuContent>
-																					</ContextMenu>
-																				);
-																			},
-																		)}
-																	</p>
+																												</ContextMenu>
+																												);
+																												},
+																											)}
+													</div>
 																</div>
 
 																{/* Delete button */}

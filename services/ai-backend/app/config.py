@@ -121,7 +121,7 @@ class Settings(BaseSettings):
 
     # Local dubbing pipeline
     DUBBING_MAX_CONCURRENT_JOBS: int = 1
-    DUBBING_MAX_TTS_CONCURRENCY: int = 2
+    DUBBING_MAX_TTS_CONCURRENCY: int = 1
     DUBBING_MAX_CHUNK_SEGMENTS: int = 5
     DUBBING_ACCEPT_SPEED: float = 1.2
     DUBBING_MAX_SPEED: float = 1.4

@@ -32,11 +32,13 @@ describe("buildLocalTTSRequest with voice cloning", () => {
 				"en",
 				"female, young adult",
 				"generated/voices/alice.wav",
+				"Hello from Alice.",
 			),
 		).toEqual({
 			text: "Hello",
 			language: "en",
 			speakerWav: "generated/voices/alice.wav",
+			referenceText: "Hello from Alice.",
 		});
 	});
 

@@ -5,6 +5,7 @@ export interface ClonedVoice {
 	id: string;
 	name: string;
 	path: string;
+	referenceText?: string;
 	createdAt: number;
 }
 

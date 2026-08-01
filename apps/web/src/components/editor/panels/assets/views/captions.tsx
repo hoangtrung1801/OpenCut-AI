@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import { aiClient } from "@/lib/ai-client";
 import type { TimelineElement } from "@/types/timeline";
 import { useBackgroundTasksStore } from "@/stores/background-tasks-store";
+import { insertSeparatedAudioStems } from "@/lib/transcription/dubbing-workflow";
 
 export function Captions() {
 	const [selectedEngine, setSelectedEngine] = useState<TranscriptionEngine>("whisper");
@@ -256,6 +257,7 @@ export function Captions() {
 
 			useTranscriptStore.getState().setSegments(transcriptSegments);
 			useTranscriptStore.getState().setLanguage(result.language ?? "en");
+			useTranscriptStore.getState().setSeparatedAudio(result.separated_audio ?? null);
 
 			// ── Auto Speaker Diarization + Emotion Detection ──
 			// Run both in parallel: speaker labels and emotion annotations.
@@ -344,38 +346,74 @@ export function Captions() {
 				}
 			}
 
-			// Auto-separate audio from video so it appears as its own track
+			// Use Demucs stems returned by Whisper when available. Other engines
+			// keep the existing source-audio fallback.
 			const tracksAfterSplit = editor.timeline.getTracks();
-			for (const track of tracksAfterSplit) {
-				if (track.type !== "video") continue;
-				for (const el of track.elements) {
-					const videoEl = el as TimelineElement & { mediaId?: string; muted?: boolean };
-					if (!videoEl.mediaId || videoEl.muted) continue;
+			const sourceElements = tracksAfterSplit.flatMap((track) =>
+				track.elements
+					.filter((element) => (element as TimelineElement & { mediaId?: string }).mediaId === foundMediaId)
+					.map((element) => ({ trackId: track.id, element })),
+			);
+			const sourceStart = sourceElements.length > 0
+				? Math.min(...sourceElements.map(({ element }) => element.startTime))
+				: 0;
+			const sourceEnd = sourceElements.length > 0
+				? Math.max(...sourceElements.map(({ element }) => element.startTime + element.duration))
+				: timelineDuration;
 
-					// Mute the video element and create a matching audio element
+			if (result.separated_audio && sourceElements.length > 0) {
+				try {
+					await insertSeparatedAudioStems({
+						editor: editor as any,
+						projectId: editor.project.getActive().metadata.id,
+						baseUrl: aiClient.getBaseUrl(),
+						separatedAudio: result.separated_audio,
+						duration: result.duration > 0 ? result.duration : sourceEnd - sourceStart,
+						startTime: sourceStart,
+					});
 					editor.timeline.updateElements({
-						updates: [{
-							trackId: track.id,
-							elementId: el.id,
+						updates: sourceElements.map(({ trackId, element }) => ({
+							trackId,
+							elementId: element.id,
 							updates: { muted: true },
-						}],
+						})),
 					});
+				} catch (stemError) {
+					console.warn("Separated audio artifacts could not be added:", stemError);
+					toast.warning("Transcription completed, but separated audio could not be added.");
+				}
+			} else {
+				for (const track of tracksAfterSplit) {
+					if (track.type !== "video") continue;
+					for (const el of track.elements) {
+						const videoEl = el as TimelineElement & { mediaId?: string; muted?: boolean };
+						if (!videoEl.mediaId || videoEl.muted) continue;
 
-					editor.timeline.insertElement({
-						element: {
-							type: "audio",
-							sourceType: "upload",
-							mediaId: videoEl.mediaId,
-							name: `${el.name} (audio)`,
-							startTime: el.startTime,
-							duration: el.duration,
-							trimStart: el.trimStart,
-							trimEnd: el.trimEnd,
-							sourceDuration: el.sourceDuration,
-							volume: 1,
-						},
-						placement: { mode: "auto" },
-					});
+						// Mute the video element and create a matching audio element
+						editor.timeline.updateElements({
+							updates: [{
+								trackId: track.id,
+								elementId: el.id,
+								updates: { muted: true },
+							}],
+						});
+
+						editor.timeline.insertElement({
+							element: {
+								type: "audio",
+								sourceType: "upload",
+								mediaId: videoEl.mediaId,
+								name: `${el.name} (audio)`,
+								startTime: el.startTime,
+								duration: el.duration,
+								trimStart: el.trimStart,
+								trimEnd: el.trimEnd,
+								sourceDuration: el.sourceDuration,
+								volume: 1,
+							},
+							placement: { mode: "auto" },
+						});
+					}
 				}
 			}
 

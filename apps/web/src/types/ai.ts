@@ -28,7 +28,7 @@ export interface TranscriptionResult {
 }
 
 export type DubbingVoice =
-	| { mode: "clone"; speaker_wav: string }
+	| { mode: "clone"; speaker_wav: string; reference_text: string }
 	| { mode: "design"; speaker: string }
 	| { mode: "auto" };
 
@@ -245,6 +245,7 @@ export interface TTSRequest {
 	text: string;
 	language: string;
 	speakerWav?: string;
+	referenceText?: string;
 	speaker?: string;
 	speed?: number;
 }

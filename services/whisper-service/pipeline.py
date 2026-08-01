@@ -9,7 +9,7 @@ from alignment import WhisperAligner
 from media_pipeline import MediaPipeline
 from models import SeparatedAudio, TranscriptionResult, WordToken
 from segmentation import SpacySegmenter, reconstruct_segments
-from semantic_client import SemanticClient
+from semantic_client import SemanticClient, SemanticValidationError
 from settings import Settings
 
 
@@ -41,6 +41,10 @@ class TranscriptionPipeline:
                 candidates.append(index)
         return candidates
 
+    def _bounded_fallback(self, words: list[WordToken]) -> list[list[WordToken]]:
+        size = self.settings.semantic_max_words
+        return [words[index : index + size] for index in range(0, len(words), size)]
+
     def run(
         self,
         source_path: Path,
@@ -62,13 +66,17 @@ class TranscriptionPipeline:
             groups: list[list[WordToken]] = []
             for group in preliminary:
                 if self.settings.semantic_split_enabled and len(group) > self.settings.semantic_max_words:
-                    groups.extend(
-                        self.semantic.split(
-                            group,
-                            detected_language,
-                            self._deterministic_candidates(group),
+                    try:
+                        groups.extend(
+                            self.semantic.split(
+                                group,
+                                detected_language,
+                                self._deterministic_candidates(group),
+                            )
                         )
-                    )
+                    except SemanticValidationError:
+                        # Provider output is untrusted; preserve lossless bounded groups locally.
+                        groups.extend(self._bounded_fallback(group))
                 else:
                     groups.append(group)
             segments = reconstruct_segments(groups)
@@ -85,4 +93,3 @@ class TranscriptionPipeline:
         finally:
             if prepared is not None:
                 prepared.cleanup_temporary()
-

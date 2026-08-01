@@ -13,8 +13,23 @@ describe("buildTTSRequestBody", () => {
 			text: "Hello",
 			language: "en",
 			speaker_wav: "generated/voices/alice.wav",
+			reference_text: undefined,
 			speaker: undefined,
 			speed: undefined,
+		});
+	});
+
+	test("maps cloned voice reference text for OmniVoice", () => {
+		expect(
+			buildTTSRequestBody({
+				text: "Bonjour",
+				language: "fr",
+				speakerWav: "generated/voices/alice.wav",
+				referenceText: "Bonjour, je suis Alice.",
+			}),
+		).toMatchObject({
+			speaker_wav: "generated/voices/alice.wav",
+			reference_text: "Bonjour, je suis Alice.",
 		});
 	});
 
@@ -29,6 +44,7 @@ describe("buildTTSRequestBody", () => {
 			text: "Hello",
 			language: "en",
 			speaker_wav: undefined,
+			reference_text: undefined,
 			speaker: "female, young adult",
 			speed: undefined,
 		});
@@ -41,6 +57,7 @@ describe("buildTTSRequestBody", () => {
 			text: "Hello",
 			language: "en",
 			speaker_wav: undefined,
+			reference_text: undefined,
 			speaker: undefined,
 			speed: 1.5,
 		});
@@ -53,6 +70,7 @@ describe("buildTTSRequestBody", () => {
 			text: "Hello",
 			language: "en",
 			speaker_wav: undefined,
+			reference_text: undefined,
 			speaker: undefined,
 			speed: undefined,
 		});

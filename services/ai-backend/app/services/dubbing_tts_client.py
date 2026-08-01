@@ -62,6 +62,7 @@ class DubbingTTSClient:
         }
         if voice.mode == "clone":
             payload["speaker_wav"] = voice.speaker_wav
+            payload["reference_text"] = voice.reference_text
         elif voice.mode == "design":
             payload["speaker"] = voice.speaker
 

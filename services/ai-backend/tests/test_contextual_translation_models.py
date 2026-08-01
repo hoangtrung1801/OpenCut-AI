@@ -23,21 +23,25 @@ class ContextualTranslationModelTests(unittest.TestCase):
         )
         self.assertEqual(request.segments[0].words[0].word, "Xin")
 
-    def test_rejects_word_outside_parent_segment(self):
-        with self.assertRaises(ValidationError):
-            ContextualTranslationRequest(
-                source_language="vi",
-                target_language="en",
-                segments=[
-                    {
-                        "id": 0,
-                        "text": "Xin chào.",
-                        "start": 1.0,
-                        "end": 2.0,
-                        "words": [{"word": "Xin", "start": 0.5, "end": 1.4}],
-                    }
-                ],
-            )
+    def test_discards_corrupt_word_timings_but_keeps_segment_text(self):
+        request = ContextualTranslationRequest(
+            source_language="vi",
+            target_language="en",
+            segments=[
+                {
+                    "id": 0,
+                    "text": "Xin chào.",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "words": [
+                        {"word": "Xin", "start": 0.5, "end": 1.4},
+                        {"word": "chào", "start": 1.4, "end": 1.8},
+                    ],
+                }
+            ],
+        )
+
+        self.assertEqual(request.segments[0].words, [])
 
     def test_caption_post_process_request_preserves_original_pair(self):
         request = CaptionPostProcessRequest(
@@ -69,6 +73,7 @@ class ContextualTranslationModelTests(unittest.TestCase):
             CONTEXT_TRANSLATION_TARGET_LENGTH_MULTIPLIER = 1.0
             CONTEXT_TRANSLATION_SPLIT_PASSES = 3
             CONTEXT_TRANSLATION_MAX_SPLIT_PASSES = 8
+            CONTEXT_TRANSLATION_MIN_CAPTION_DURATION = 0.8
             CONTEXT_TRANSLATION_GAP_CLOSE_SECONDS = 1.0
 
         limits = ContextualTranslationLimits.from_settings(FakeSettings)
@@ -77,6 +82,7 @@ class ContextualTranslationModelTests(unittest.TestCase):
         self.assertEqual(limits.target_length_multiplier, 1.0)
         self.assertEqual(limits.split_passes, 3)
         self.assertEqual(limits.max_split_passes, 8)
+        self.assertEqual(limits.min_caption_duration, 0.8)
         self.assertEqual(limits.gap_close_seconds, 1.0)
 
     def test_accepts_ordered_timestamped_segments(self):

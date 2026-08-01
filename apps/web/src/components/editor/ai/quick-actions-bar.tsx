@@ -10,6 +10,13 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	TextIcon,
@@ -22,6 +29,7 @@ import {
 	Scissor01Icon,
 } from "@hugeicons/core-free-icons";
 import { useTranscriptStore } from "@/stores/transcript-store";
+import { LANGUAGES } from "@/constants/language-constants";
 import { useEditor } from "@/hooks/use-editor";
 import { useTextTimelineBridge } from "@/hooks/use-text-timeline-bridge";
 import { useSmartCut } from "@/hooks/use-smart-cut";
@@ -34,6 +42,7 @@ import {
 	buildPopoverSubtitleElements,
 	distributeElementsToTracks,
 } from "@/lib/podcast/subtitle-presets";
+import { getTranslationDisplaySegments } from "@/lib/transcription/translation-control";
 import { toast } from "sonner";
 
 type ActionStatus = "idle" | "running" | "done";
@@ -64,6 +73,8 @@ const FILLER_WORDS = new Set([
  */
 export function QuickActionsBar({ className }: { className?: string }) {
 	const segments = useTranscriptStore((s) => s.segments);
+	const transcriptLanguage = useTranscriptStore((s) => s.language);
+	const translations = useTranscriptStore((s) => s.translations);
 	const editor = useEditor();
 	const { handleDeleteSegments } = useTextTimelineBridge();
 	const { runSmartCut } = useSmartCut();
@@ -196,14 +207,30 @@ export function QuickActionsBar({ className }: { className?: string }) {
 	}, [silenceStatus, currentSilenceCount]);
 
 	// --- Add / Remove Subtitles ---
-	const handleSubtitles = useCallback(() => {
+	const handleSubtitles = useCallback((languageCode = "original") => {
 		if (subtitleTrackId) {
 			editor.timeline.removeTrack({ trackId: subtitleTrackId });
 			toast.success("Subtitles removed");
 			return;
 		}
 
-		const currentSegments = useTranscriptStore.getState().segments;
+		const transcript = useTranscriptStore.getState();
+		const translation = transcript.translations.find(
+			(item) => item.languageCode === languageCode,
+		);
+		const currentSegments = languageCode === "original"
+			? transcript.segments.map((segment) => ({
+				text: segment.text,
+				start: segment.start,
+				end: segment.end,
+			}))
+			: translation
+				? getTranslationDisplaySegments(translation).map((segment) => ({
+					text: segment.translation,
+					start: segment.start,
+					end: segment.end,
+				}))
+				: [];
 		if (currentSegments.length === 0) return;
 
 		const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
@@ -243,7 +270,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 			});
 		}
 
-		toast.success("Subtitles added to timeline");
+		toast.success(`${translation?.languageName ?? "Original"} subtitles added to timeline`);
 	}, [editor, subtitleTrackId]);
 
 	// --- Fact Check ---
@@ -370,6 +397,15 @@ export function QuickActionsBar({ className }: { className?: string }) {
 		fillerStatus === "done" ? fillerCount : currentFillerCount;
 	const effectiveSilenceCount =
 		silenceStatus === "done" ? silenceCount : currentSilenceCount;
+	const originalLanguageName =
+		LANGUAGES.find((language) => language.code === transcriptLanguage)?.name ?? "Original";
+	const subtitleLanguages = [
+		{ code: "original", name: originalLanguageName },
+		...translations.map((translation) => ({
+			code: translation.languageCode,
+			name: translation.languageName,
+		})),
+	];
 
 	const actions = [
 		{
@@ -428,7 +464,7 @@ export function QuickActionsBar({ className }: { className?: string }) {
 				: "Add subtitle text overlay from transcript",
 			icon: TextIcon,
 			status: (subtitleTrackId ? "done" : "idle") as ActionStatus,
-			handler: handleSubtitles,
+			handler: () => handleSubtitles(),
 		},
 		{
 			id: "popover-subs",
@@ -471,8 +507,33 @@ export function QuickActionsBar({ className }: { className?: string }) {
 				Quick actions
 			</span>
 			<div className="w-px h-4 bg-border shrink-0" />
-			{actions.map((action) => (
-				<Tooltip key={action.id}>
+			{actions.map((action) =>
+				action.id === "subtitles" && translations.length > 0 && !subtitleTrackId ? (
+					<DropdownMenu key={action.id}>
+						<DropdownMenuTrigger asChild>
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-7 text-[11px] px-2 gap-1.5"
+							>
+								<HugeiconsIcon icon={action.icon} className="size-3" />
+								{action.label}
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="center" className="min-w-40">
+							<DropdownMenuLabel>Add subtitles from</DropdownMenuLabel>
+							{subtitleLanguages.map((language) => (
+								<DropdownMenuItem
+									key={language.code}
+									onClick={() => handleSubtitles(language.code)}
+								>
+									{language.name}
+								</DropdownMenuItem>
+							))}
+						</DropdownMenuContent>
+					</DropdownMenu>
+				) : (
+					<Tooltip key={action.id}>
 					<TooltipTrigger asChild>
 						<Button
 							variant="ghost"
@@ -505,8 +566,9 @@ export function QuickActionsBar({ className }: { className?: string }) {
 					<TooltipContent side="top" className="max-w-48 text-xs">
 						{action.description}
 					</TooltipContent>
-				</Tooltip>
-			))}
+					</Tooltip>
+				),
+			)}
 		</div>
 	);
 }

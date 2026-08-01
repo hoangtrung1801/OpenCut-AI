@@ -34,7 +34,11 @@ def request_payload(voice: dict) -> dict:
 class DubbingModelsTest(unittest.TestCase):
     def test_accepts_explicit_clone_design_and_auto_modes(self):
         for voice in (
-            {"mode": "clone", "speaker_wav": "generated/voices/alice.wav"},
+            {
+                "mode": "clone",
+                "speaker_wav": "generated/voices/alice.wav",
+                "reference_text": "Hello from Alice.",
+            },
             {"mode": "design", "speaker": "warm female narrator"},
             {"mode": "auto"},
         ):
@@ -45,7 +49,11 @@ class DubbingModelsTest(unittest.TestCase):
 
     def test_rejects_mixed_voice_fields_and_clone_path_traversal(self):
         invalid = (
-            {"mode": "clone", "speaker_wav": "../../secret.wav"},
+            {
+                "mode": "clone",
+                "speaker_wav": "../../secret.wav",
+                "reference_text": "Hello.",
+            },
             {
                 "mode": "design",
                 "speaker": "warm",

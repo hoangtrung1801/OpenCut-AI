@@ -33,38 +33,158 @@ def weighted_length(text: str) -> float:
     return sum(_char_weight(char) for char in str(text))
 
 
+def normalize_caption_text(text: str) -> str:
+    return " ".join(str(text).split())
+
+
+def _text_boundary_candidates(text: str) -> list[tuple[int, int]]:
+    candidates: list[tuple[int, int]] = []
+    for match in re.finditer(r"\S+", text):
+        index = match.end()
+        if index < len(text):
+            token = match.group(0)
+            priority = 1 if token[-1] in _SENTENCE_PUNCTUATION else 3
+            if token[-1] in _PHRASE_PUNCTUATION:
+                priority = 2
+            candidates.append((priority, index))
+    if candidates:
+        return candidates
+    return [
+        (
+            1
+            if text[index - 1] in _SENTENCE_PUNCTUATION
+            else 2
+            if text[index - 1] in _PHRASE_PUNCTUATION
+            else 3,
+            index,
+        )
+        for index in range(1, len(text))
+    ]
+
+
+def wrap_caption_text(
+    text: str,
+    *,
+    max_chars: int,
+    max_lines: int = 2,
+) -> str:
+    normalized = normalize_caption_text(text)
+    if not normalized:
+        raise ValueError("caption text cannot be empty")
+    if max_chars <= 0 or max_lines <= 0:
+        raise ValueError("caption limits must be positive")
+    if weighted_length(normalized) <= max_chars:
+        return normalized
+    if max_lines == 1 or weighted_length(normalized) > max_chars * max_lines:
+        raise ValueError("caption exceeds the configured display length")
+
+    candidates = []
+    for priority, index in _text_boundary_candidates(normalized):
+        left = normalized[:index].strip()
+        right = normalized[index:].strip()
+        if not left or not right or right[0] in _PUNCTUATION:
+            continue
+        if weighted_length(left) <= max_chars and weighted_length(right) <= max_chars:
+            candidates.append(
+                (priority, abs(weighted_length(left) - weighted_length(right)), left, right)
+            )
+    if not candidates:
+        for index in range(1, len(normalized)):
+            left = normalized[:index].strip()
+            right = normalized[index:].strip()
+            if (
+                left
+                and right
+                and not _punctuation_only(left)
+                and right[0] not in _PUNCTUATION
+                and weighted_length(left) <= max_chars
+                and weighted_length(right) <= max_chars
+            ):
+                candidates.append(
+                    (4, abs(weighted_length(left) - weighted_length(right)), left, right)
+                )
+    if not candidates:
+        raise ValueError("caption cannot be wrapped at a readable boundary")
+    _, _, left, right = min(candidates, key=lambda item: (item[0], item[1]))
+    return f"{left}\n{right}"
+
+
+def caption_fits(
+    text: str,
+    *,
+    max_chars: int,
+    max_lines: int = 2,
+) -> bool:
+    try:
+        wrap_caption_text(text, max_chars=max_chars, max_lines=max_lines)
+    except ValueError:
+        return False
+    return True
+
+
 def requires_split(
     source: str,
     translation: str,
     *,
     max_chars: int,
     target_multiplier: float,
+    max_lines: int = 2,
 ) -> bool:
-    return len(source) > max_chars or weighted_length(translation) * target_multiplier > max_chars
+    return (
+        not caption_fits(source, max_chars=max_chars, max_lines=max_lines)
+        or not caption_fits(translation, max_chars=max_chars, max_lines=max_lines)
+        or weighted_length(normalize_caption_text(translation)) * target_multiplier
+        > max_chars * max_lines
+    )
 
 
 _PUNCTUATION = frozenset(",;:!?。！？、")
+_SENTENCE_PUNCTUATION = frozenset(".!?。！？")
+_PHRASE_PUNCTUATION = frozenset(",;:、，；：")
 
 
-def _boundary_candidates(source: str) -> list[tuple[int, int]]:
-    """Return (priority, index) boundaries after words and punctuation."""
-    candidates: list[tuple[int, int]] = []
-    for match in re.finditer(r"\S+", source):
-        end = match.end()
-        token = match.group(0)
-        priority = 1 if token[-1] in _PUNCTUATION else 2
-        candidates.append((priority, end))
-    if not candidates:
-        return []
-    return candidates
+def _boundary_candidates(
+    source: str,
+    spans: list[tuple[int, int, TranslationWordInput]] | None = None,
+) -> list[tuple[int, int]]:
+    """Return readable boundaries, including Whisper spans for no-space scripts."""
+    if spans:
+        return [
+            (
+                1
+                if source[word_start:word_end][-1] in _SENTENCE_PUNCTUATION
+                else 2
+                if source[word_start:word_end][-1] in _PHRASE_PUNCTUATION
+                else 3,
+                word_end,
+            )
+            for word_start, word_end, _ in spans
+            if word_end < len(source)
+        ]
+    token_candidates = _text_boundary_candidates(source)
+    if token_candidates:
+        return token_candidates
+    return []
 
 
-def _choose_split_index(source: str, max_chars: int) -> int:
+def _punctuation_only(text: str) -> bool:
+    return bool(text) and all(char in _PUNCTUATION for char in text)
+
+
+def _choose_split_index(
+    source: str,
+    max_chars: int,
+    *,
+    candidates: list[tuple[int, int]] | None = None,
+) -> int:
     midpoint = len(source) / 2
     candidates = [
         (priority, index)
-        for priority, index in _boundary_candidates(source)
-        if source[:index].strip() and source[index:].strip()
+        for priority, index in (candidates or _boundary_candidates(source))
+        if source[:index].strip()
+        and source[index:].strip()
+        and not _punctuation_only(source[:index].strip())
+        and not _punctuation_only(source[index:].strip())
     ]
     if candidates:
         best_priority = min(priority for priority, _ in candidates)
@@ -73,7 +193,12 @@ def _choose_split_index(source: str, max_chars: int) -> int:
 
     if not source:
         raise ValueError("cannot split empty source")
-    return max(1, min(len(source) - 1, max_chars))
+    fallback = max(1, min(len(source) - 1, max_chars))
+    if _punctuation_only(source[fallback:].strip()):
+        for index in range(fallback - 1, 0, -1):
+            if not _punctuation_only(source[index:].strip()):
+                return index
+    return fallback
 
 
 def _word_spans(source: str, words: list[TranslationWordInput]) -> list[tuple[int, int, TranslationWordInput]] | None:
@@ -125,14 +250,50 @@ def split_timed_source(
     end: float,
     words: list[TranslationWordInput],
     max_chars: int,
+    min_duration: float = 0,
 ) -> tuple[TimedSourcePart, TimedSourcePart]:
     source = source.strip()
     if len(source) < 2:
         raise ValueError("source is too short to split")
     if end <= start:
         raise ValueError("source duration must be positive")
+    if min_duration < 0:
+        raise ValueError("minimum duration cannot be negative")
 
-    split_index = _choose_split_index(source, max_chars)
+    spans = _word_spans(source, words)
+    candidate_boundaries = _boundary_candidates(source, spans)
+    valid_boundaries: list[tuple[int, int]] = []
+    for priority, index in candidate_boundaries:
+        left_text = source[:index].strip()
+        right_text = source[index:].strip()
+        if (
+            not left_text
+            or not right_text
+            or _punctuation_only(left_text)
+            or _punctuation_only(right_text)
+        ):
+            continue
+        left_offset = source.find(left_text)
+        right_offset = source.find(right_text, left_offset + len(left_text))
+        left_words = _part_words(spans, left_offset, right_offset)
+        right_words = _part_words(spans, right_offset, len(source))
+        if left_words and right_words:
+            left_start, left_end = left_words[0].start, left_words[-1].end
+            right_start, right_end = right_words[0].start, right_words[-1].end
+        else:
+            (left_start, left_end), (right_start, right_end) = _proportional_range(
+                start, end, left_text, right_text
+            )
+        if (
+            left_end - left_start >= min_duration
+            and right_end - right_start >= min_duration
+        ):
+            valid_boundaries.append((priority, index))
+    split_index = _choose_split_index(
+        source,
+        max_chars,
+        candidates=valid_boundaries or candidate_boundaries,
+    )
     left_text = source[:split_index].strip()
     right_text = source[split_index:].strip()
     if not left_text or not right_text:
@@ -140,7 +301,6 @@ def split_timed_source(
 
     left_offset = source.find(left_text)
     right_offset = source.find(right_text, left_offset + len(left_text))
-    spans = _word_spans(source, words)
     left_words = _part_words(spans, left_offset, right_offset)
     right_words = _part_words(spans, right_offset, len(source))
 

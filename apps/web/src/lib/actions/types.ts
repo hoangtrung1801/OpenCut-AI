@@ -16,8 +16,10 @@ export type TActionArgsMap = {
 		targetLanguage: string;
 		voiceDesign?: string;
 		voiceClonePath?: string;
+		voiceCloneReferenceText?: string;
 		pace?: number;
 		segmentIndices?: number[];
+		sentenceOverrides?: Record<number, string>;
 	} | undefined;
 };
 

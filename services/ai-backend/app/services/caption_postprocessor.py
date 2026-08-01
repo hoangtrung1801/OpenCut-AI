@@ -17,8 +17,10 @@ from app.models.translation import (
 from app.services.caption_splitter import (
     TimedSourcePart,
     close_short_gaps,
+    normalize_caption_text,
     requires_split,
     split_timed_source,
+    wrap_caption_text,
 )
 from app.services.subtitle_service import build_subtitle_documents
 
@@ -76,7 +78,9 @@ class CaptionPostProcessor:
             "Align the original translation to the exact source parts. Return ONLY "
             "a JSON object with an alignments array. Include every integer id exactly "
             "once, in the same order. Do not merge, split, omit, reorder, or rewrite "
-            "the source parts. Each alignment must contain a non-empty translation.\n"
+            "the source parts. Each translation must be the exact contiguous slice "
+            "of the original translation for that source part: do not rewrite, "
+            "repeat, omit, or invent words. Do not include newline characters.\n"
             f"Source language: {request.source_language}\n"
             f"Target language: {request.target_language}\n"
             f"Original source: {original_source}\n"
@@ -88,7 +92,11 @@ class CaptionPostProcessor:
         return prompt
 
     @staticmethod
-    def _validate_alignment(payload: Any, expected_ids: list[int]) -> list[str]:
+    def _validate_alignment(
+        payload: Any,
+        expected_ids: list[int],
+        original_translation: str,
+    ) -> list[str]:
         if not isinstance(payload, dict):
             raise CaptionAlignmentError("alignment response must be an object")
         raw_alignments = payload.get("alignments")
@@ -110,10 +118,17 @@ class CaptionPostProcessor:
             ):
                 raise CaptionAlignmentError("alignment item has an invalid shape")
             actual_ids.append(identifier)
-            translations.append(translation.strip())
+            translations.append(normalize_caption_text(translation))
         if actual_ids != expected_ids:
             raise CaptionAlignmentError(
                 f"alignment IDs must exactly match {expected_ids}"
+            )
+        expected = normalize_caption_text(original_translation)
+        joined_with_spaces = normalize_caption_text(" ".join(translations))
+        joined_without_spaces = normalize_caption_text("".join(translations))
+        if expected != joined_with_spaces and expected != joined_without_spaces:
+            raise CaptionAlignmentError(
+                "alignment translations must reconstruct the original translation"
             )
         return translations
 
@@ -139,7 +154,11 @@ class CaptionPostProcessor:
                     system="Return strict JSON only.",
                     _retries=0,
                 )
-                return self._validate_alignment(payload, expected_ids)
+                return self._validate_alignment(
+                    payload,
+                    expected_ids,
+                    original_translation,
+                )
             except CaptionAlignmentError as exc:
                 previous_error = str(exc)
                 if attempt == self.limits.correction_retries:
@@ -147,6 +166,88 @@ class CaptionPostProcessor:
             except Exception as exc:
                 raise CaptionProviderError("caption alignment provider failed") from exc
         raise CaptionAlignmentError("caption alignment validation failed")
+
+    @staticmethod
+    def _merge_parts(
+        left: _WorkPart,
+        right: _WorkPart,
+        *,
+        source_language: str,
+    ) -> _WorkPart:
+        language = source_language.casefold().split("-", 1)[0]
+        source_parts = [normalize_caption_text(left.source), normalize_caption_text(right.source)]
+        source = "".join(source_parts) if language in {"zh", "ja"} else " ".join(source_parts)
+        return _WorkPart(
+            parent_id=left.parent_id,
+            source=source,
+            translation=" ".join(
+                part for part in (normalize_caption_text(left.translation), normalize_caption_text(right.translation))
+                if part
+            ),
+            start=left.start,
+            end=right.end,
+            words=left.words + right.words,
+        )
+
+    def _merge_short_parts(
+        self,
+        parts: list[_WorkPart],
+        *,
+        source_language: str,
+    ) -> list[_WorkPart]:
+        """Merge split pieces that would flash faster than the display minimum."""
+        merged: list[_WorkPart] = []
+        pending: _WorkPart | None = None
+
+        for part in parts:
+            if pending is None:
+                pending = part
+                continue
+
+            if pending.parent_id == part.parent_id and pending.end - pending.start < self.limits.min_caption_duration:
+                candidate = self._merge_parts(
+                    pending,
+                    part,
+                    source_language=source_language,
+                )
+                if not requires_split(
+                    candidate.source,
+                    candidate.translation,
+                    max_chars=self.limits.max_caption_chars,
+                    target_multiplier=self.limits.target_length_multiplier,
+                    max_lines=2,
+                ):
+                    pending = candidate
+                    continue
+
+            merged.append(pending)
+            pending = part
+
+        if pending is not None:
+            if (
+                merged
+                and merged[-1].parent_id == pending.parent_id
+                and pending.end - pending.start < self.limits.min_caption_duration
+            ):
+                candidate = self._merge_parts(
+                    merged[-1],
+                    pending,
+                    source_language=source_language,
+                )
+                if not requires_split(
+                    candidate.source,
+                    candidate.translation,
+                    max_chars=self.limits.max_caption_chars,
+                    target_multiplier=self.limits.target_length_multiplier,
+                    max_lines=2,
+                ):
+                    merged[-1] = candidate
+                else:
+                    merged.append(pending)
+            else:
+                merged.append(pending)
+
+        return merged
 
     async def process_pairs(
         self,
@@ -183,6 +284,7 @@ class CaptionPostProcessor:
                     part.translation,
                     max_chars=self.limits.max_caption_chars,
                     target_multiplier=self.limits.target_length_multiplier,
+                    max_lines=2,
                 ):
                     next_parts.append(part)
                     continue
@@ -195,6 +297,7 @@ class CaptionPostProcessor:
                         end=part.end,
                         words=list(part.words),
                         max_chars=self.limits.max_caption_chars,
+                        min_duration=self.limits.min_caption_duration,
                     )
                 except ValueError as exc:
                     raise CaptionPolicyError("caption source cannot be split") from exc
@@ -225,10 +328,13 @@ class CaptionPostProcessor:
                 part.translation,
                 max_chars=self.limits.max_caption_chars,
                 target_multiplier=self.limits.target_length_multiplier,
+                max_lines=2,
             )
             for part in parts
         ):
             raise CaptionPolicyError("caption exceeds the configured display length")
+
+        parts = self._merge_short_parts(parts, source_language=request.source_language)
 
         display_segments: list[DisplayCaptionSegment] = []
         parent_part_indices: dict[int, int] = {}
@@ -240,8 +346,16 @@ class CaptionPostProcessor:
                     id=display_id,
                     parent_id=part.parent_id,
                     part_index=part_index,
-                    source=part.source,
-                    translation=part.translation,
+                    source=wrap_caption_text(
+                        part.source,
+                        max_chars=self.limits.max_caption_chars,
+                        max_lines=2,
+                    ),
+                    translation=wrap_caption_text(
+                        part.translation,
+                        max_chars=self.limits.max_caption_chars,
+                        max_lines=2,
+                    ),
                     start=part.start,
                     end=part.end,
                 )

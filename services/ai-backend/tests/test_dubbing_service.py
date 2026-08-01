@@ -1,8 +1,10 @@
+import asyncio
 import tempfile
 import unittest
 import wave
 from pathlib import Path
 
+from app.config import settings
 from app.models.dubbing import (
     AutoVoice,
     DubbingDisplaySegment,
@@ -69,7 +71,27 @@ def one_clip_request() -> DubbingJobCreateRequest:
 
 
 def annotation_only_request() -> DubbingJobCreateRequest:
-    return request_with_displays([(10, 1, 0, "(laughs)", 0.0, 1.0)])
+    return DubbingJobCreateRequest(
+        source_language="en",
+        target_language="vi",
+        audio_segments=[DubbingParentSegment(
+            id=1,
+            source="(laughs)",
+            translation="(laughs)",
+            start=0.0,
+            end=1.0,
+        )],
+        display_segments=[DubbingDisplaySegment(
+            id=10,
+            parent_id=1,
+            part_index=0,
+            source="(laughs)",
+            translation="(laughs)",
+            start=0.0,
+            end=1.0,
+        )],
+        voice=AutoVoice(mode="auto"),
+    )
 
 
 def limits() -> DubbingLimits:
@@ -115,6 +137,22 @@ class FailingTTS(FakeTTS):
         raise self.error
 
 
+class ConcurrencyTrackingTTS(FakeTTS):
+    def __init__(self):
+        super().__init__({10: 0.5, 11: 0.5})
+        self.active_calls = 0
+        self.max_active_calls = 0
+
+    async def generate_to_file(self, **kwargs) -> None:
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        try:
+            await asyncio.sleep(0.01)
+            await super().generate_to_file(**kwargs)
+        finally:
+            self.active_calls -= 1
+
+
 class FakeAudioProcessor:
     @staticmethod
     def write_silence(path: Path, duration: float = 0.1) -> None:
@@ -148,7 +186,21 @@ def make_manager(
 
 
 class DubbingJobManagerTest(unittest.IsolatedAsyncioTestCase):
-    async def test_completes_job_with_one_wav_and_caption_per_display_row(self):
+    async def test_default_configuration_serializes_tts_generation(self):
+        tts = ConcurrencyTrackingTTS()
+        with tempfile.TemporaryDirectory() as directory:
+            manager = DubbingJobManager(
+                generated_root=Path(directory),
+                limits=DubbingLimits.from_settings(settings),
+                tts_client=tts,
+                audio_processor=FakeAudioProcessor(),
+            )
+            accepted = manager.create(two_clip_request())
+            await manager.wait(accepted.job_id)
+
+        self.assertEqual(tts.max_active_calls, 1)
+
+    async def test_completes_job_with_one_wav_per_sentence_and_captions_per_display_row(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = make_manager(
                 root=Path(directory),
@@ -159,10 +211,14 @@ class DubbingJobManagerTest(unittest.IsolatedAsyncioTestCase):
             snapshot = manager.get(accepted.job_id)
 
         self.assertEqual(snapshot.status, DubbingJobStatus.COMPLETED)
-        self.assertEqual([clip.id for clip in snapshot.result.clips], [10, 11])
+        self.assertEqual([clip.id for clip in snapshot.result.clips], [1])
         self.assertEqual(len(snapshot.result.captions), 2)
         self.assertIn("00:00:", snapshot.result.srt)
-        self.assertTrue(snapshot.result.clips[0].audio_url.endswith("/clips/10.wav"))
+        self.assertEqual(
+            snapshot.result.clips[0].audio_url,
+            f"/generated/{accepted.job_id}/clips/1.wav",
+        )
+        self.assertTrue(snapshot.result.clips[0].audio_url.endswith("/clips/1.wav"))
 
     async def test_empty_cleaned_caption_creates_silence_without_tts(self):
         tts = FakeTTS({})

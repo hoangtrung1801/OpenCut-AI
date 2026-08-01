@@ -16,6 +16,10 @@ class SemanticSegmentationError(RuntimeError):
     """Raised when required semantic refinement cannot produce valid boundaries."""
 
 
+class SemanticValidationError(SemanticSegmentationError):
+    """The backend rejected generated boundaries; retry or use a local fallback."""
+
+
 class HttpxSemanticTransport:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -29,12 +33,25 @@ class HttpxSemanticTransport:
                 json=dict(payload),
                 timeout=self.settings.semantic_timeout_seconds,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except Exception as exc:
+                if response.status_code == 422:
+                    try:
+                        detail = response.json().get("detail", response.text)
+                    except Exception:
+                        detail = response.text
+                    raise SemanticValidationError(
+                        f"Semantic refinement rejected: {detail}"
+                    ) from exc
+                raise
             data = response.json()
             if not isinstance(data, Mapping):
                 raise ValueError("response is not an object")
             return data
         except Exception as exc:
+            if isinstance(exc, SemanticSegmentationError):
+                raise
             raise SemanticSegmentationError(f"Semantic refinement transport failed: {type(exc).__name__}") from exc
 
 
@@ -93,6 +110,7 @@ class SemanticClient:
         candidates: Sequence[int],
     ) -> list[list[WordToken]]:
         previous_error = ""
+        last_validation_error: SemanticValidationError | None = None
         payload_words = [{"index": index, "word": word.word} for index, word in enumerate(words)]
         for _attempt in range(self.settings.semantic_max_retries):
             payload: dict[str, Any] = {
@@ -104,6 +122,11 @@ class SemanticClient:
                 payload["previous_error"] = previous_error
             try:
                 response = self.transport(payload)
+            except SemanticValidationError as exc:
+                last_validation_error = exc
+                previous_error = str(exc)
+                logger.info("Retrying rejected semantic refinement response: %s", previous_error)
+                continue
             except SemanticSegmentationError:
                 raise
             except Exception as exc:
@@ -121,6 +144,10 @@ class SemanticClient:
             except ValueError as exc:
                 previous_error = str(exc)
                 logger.info("Retrying invalid semantic refinement response: %s", previous_error)
+        if last_validation_error is not None:
+            raise SemanticValidationError(
+                "Semantic refinement returned rejected boundaries after retries"
+            ) from last_validation_error
         raise SemanticSegmentationError("Semantic refinement returned invalid boundaries after retries")
 
     def split(
@@ -137,4 +164,3 @@ class SemanticClient:
         ):
             groups.extend(self._split_window(words[start:end], language, relative_candidates))
         return groups
-

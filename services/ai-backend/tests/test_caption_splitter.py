@@ -2,9 +2,12 @@ import unittest
 
 from app.models.translation import DisplayCaptionSegment, TranslationWordInput
 from app.services.caption_splitter import (
+    caption_fits,
     close_short_gaps,
+    normalize_caption_text,
     requires_split,
     split_timed_source,
+    wrap_caption_text,
     weighted_length,
 )
 
@@ -23,11 +26,30 @@ class WeightedLengthTests(unittest.TestCase):
         self.assertTrue(
             requires_split(
                 "short",
-                "12345678901234567",
+                "1234567890123456789012345678901234567890",
                 max_chars=32,
                 target_multiplier=2.0,
             )
         )
+
+    def test_two_line_capacity_and_inline_normalization(self):
+        text = "  Một dòng\n tự nhiên.  "
+        self.assertEqual(normalize_caption_text(text), "Một dòng tự nhiên.")
+        self.assertTrue(caption_fits("Một câu ngắn.", max_chars=32))
+        self.assertFalse(
+            caption_fits("Một câu có rất nhiều từ cần được xuống dòng để đọc dễ hơn.", max_chars=12)
+        )
+
+    def test_vietnamese_wraps_to_two_balanced_lines_at_word_boundaries(self):
+        text = "Mọi người ơi, làm nhân sự ở thiên đình là trải nghiệm thế nào?"
+
+        wrapped = wrap_caption_text(text, max_chars=32)
+
+        lines = wrapped.splitlines()
+        self.assertLessEqual(len(lines), 2)
+        self.assertTrue(all(weighted_length(line) <= 32 for line in lines))
+        self.assertEqual(wrapped.replace("\n", ""), text)
+        self.assertNotIn("\n ", wrapped)
 
 
 class TimedSourceSplitTests(unittest.TestCase):
@@ -45,6 +67,55 @@ class TimedSourceSplitTests(unittest.TestCase):
             "Đây là phần đầu, và đây là phần tiếp theo",
         )
         self.assertTrue(left.text.endswith(","))
+
+    def test_chinese_uses_whisper_word_boundaries_without_isolating_punctuation(self):
+        words = [
+            TranslationWordInput(word="家", start=0.38, end=0.46),
+            TranslationWordInput(word="人", start=0.46, end=0.54),
+            TranslationWordInput(word="们,", start=0.54, end=0.72),
+            TranslationWordInput(word="在", start=0.76, end=1.18),
+            TranslationWordInput(word="天", start=1.18, end=1.52),
+            TranslationWordInput(word="庭", start=1.52, end=1.80),
+            TranslationWordInput(word="做", start=1.80, end=1.98),
+            TranslationWordInput(word="人", start=1.98, end=2.18),
+            TranslationWordInput(word="士", start=2.18, end=2.46),
+            TranslationWordInput(word="是", start=2.46, end=2.64),
+            TranslationWordInput(word="一", start=2.64, end=2.74),
+            TranslationWordInput(word="种", start=2.74, end=2.94),
+            TranslationWordInput(word="什么", start=2.94, end=3.14),
+            TranslationWordInput(word="体", start=3.14, end=3.38),
+            TranslationWordInput(word="验?", start=3.38, end=3.72),
+        ]
+
+        left, right = split_timed_source(
+            source="家人们,在天庭做人士是一种什么体验?",
+            start=0.38,
+            end=3.72,
+            words=words,
+            max_chars=32,
+            min_duration=0.8,
+        )
+
+        self.assertEqual(left.text + right.text, "家人们,在天庭做人士是一种什么体验?")
+        self.assertNotIn(left.text, {"?", "。", "!", "！", "？"})
+        self.assertNotIn(right.text, {"?", "。", "!", "！", "？"})
+        self.assertEqual(left.start, 0.38)
+        self.assertEqual(right.end, 3.72)
+        self.assertLessEqual(left.end, right.start)
+        self.assertGreaterEqual(left.end - left.start, 0.8)
+        self.assertGreaterEqual(right.end - right.start, 0.8)
+
+    def test_chinese_character_fallback_keeps_terminal_punctuation_attached(self):
+        left, right = split_timed_source(
+            source="了吃不上饭了,我被分到了考工科。",
+            start=10.9,
+            end=13.85,
+            words=[],
+            max_chars=32,
+        )
+
+        self.assertEqual(left.text + right.text, "了吃不上饭了,我被分到了考工科。")
+        self.assertNotEqual(right.text, "。")
 
     def test_uses_word_timestamps_when_words_reconstruct_source(self):
         left, right = split_timed_source(

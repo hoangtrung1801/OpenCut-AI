@@ -128,6 +128,7 @@ class WhisperAligner:
                 model,
                 metadata,
                 str(audio_path),
+                device=device,
                 return_char_alignments=False,
             )
             aligned_items = result.get("word_segments", []) if isinstance(result, Mapping) else []
@@ -141,11 +142,13 @@ class WhisperAligner:
                 if not aligned_text or cursor >= len(updated):
                     continue
                 target = self._normalise_token(aligned_text)
-                match = cursor
+                match: int | None = None
                 for index in range(cursor, min(cursor + 4, len(updated))):
                     if self._normalise_token(updated[index].word) == target:
                         match = index
                         break
+                if match is None:
+                    continue
                 start = _get(item, "start")
                 end = _get(item, "end")
                 try:
@@ -162,8 +165,17 @@ class WhisperAligner:
                 ):
                     updated[match] = replace(updated[match], start=start_value, end=end_value)
                 cursor = match + 1
+            previous_start = -math.inf
+            for word in updated:
+                if (
+                    not math.isfinite(word.start)
+                    or not math.isfinite(word.end)
+                    or word.end < word.start
+                    or word.start < previous_start
+                ):
+                    raise ValueError("WhisperX alignment produced non-monotonic timestamps")
+                previous_start = word.start
             return updated
         except Exception as exc:
             logger.warning("WhisperX alignment unavailable; using native timestamps: %s", exc)
             return words
-

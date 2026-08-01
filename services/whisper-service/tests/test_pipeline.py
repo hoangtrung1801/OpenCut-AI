@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from models import PreparedMedia, WordToken
 from pipeline import TranscriptionPipeline
+from semantic_client import SemanticValidationError
 from settings import Settings
 
 
@@ -113,6 +114,22 @@ class PipelineTests(unittest.TestCase):
         result = pipeline.run(self.source, "en", self.artifact_id)
         self.assertEqual(len(result.segments), 1)
         self.assertEqual(semantic.calls, [])
+
+    def test_rejected_semantic_boundaries_use_lossless_bounded_fallback(self):
+        pipeline, _media, _asr, _aligner, _segmenter, _semantic = self._pipeline(21)
+
+        class RejectedSemantic:
+            def split(self, words, language, candidates):
+                raise SemanticValidationError("rejected")
+
+        pipeline.semantic = RejectedSemantic()
+        result = pipeline.run(self.source, "en", self.artifact_id)
+
+        self.assertEqual(len(result.segments), 2)
+        self.assertEqual(
+            [word for segment in result.segments for word in segment.text.split()],
+            [f"w{index}" for index in range(21)],
+        )
 
 
 if __name__ == "__main__":

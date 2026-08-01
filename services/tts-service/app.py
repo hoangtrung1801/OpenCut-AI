@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,10 +58,19 @@ class TTSGenerateRequest(BaseModel):
     speaker_wav: str | None = Field(
         default=None, description="Path to reference speaker WAV for voice cloning"
     )
+    reference_text: str | None = Field(
+        default=None, description="Transcript of the reference audio for voice cloning"
+    )
     speaker: str | None = Field(
         default=None, description="Built-in speaker name (e.g., 'male', 'female')"
     )
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speech speed")
+
+    @model_validator(mode="after")
+    def validate_reference_text(self) -> "TTSGenerateRequest":
+        if self.speaker_wav and (not self.reference_text or not self.reference_text.strip()):
+            raise ValueError("reference_text is required with speaker_wav")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +180,7 @@ class TTSService:
         text: str,
         language: str,
         speaker_wav: str | None,
+        reference_text: str | None,
         speaker: str | None,
         speed: float,
     ) -> dict:
@@ -182,6 +192,8 @@ class TTSService:
         }
         if speaker_wav:
             kwargs["ref_audio"] = speaker_wav
+            if reference_text:
+                kwargs["ref_text"] = reference_text
         elif speaker:
             kwargs["instruct"] = speaker
         return kwargs
@@ -197,6 +209,7 @@ class TTSService:
         text: str,
         language: str,
         speaker_wav: str | None,
+        reference_text: str | None,
         speaker: str | None,
         speed: float,
         output_path: str,
@@ -209,6 +222,7 @@ class TTSService:
                 text=text,
                 language=language,
                 speaker_wav=speaker_wav,
+                reference_text=reference_text,
                 speaker=speaker,
                 speed=speed,
             )
@@ -237,6 +251,7 @@ class TTSService:
         text: str,
         language: str = "en",
         speaker_wav: str | None = None,
+        reference_text: str | None = None,
         speaker: str | None = None,
         speed: float = 1.0,
     ) -> str:
@@ -257,6 +272,7 @@ class TTSService:
             text,
             language,
             speaker_wav,
+            reference_text,
             speaker,
             speed,
             output_path,
@@ -376,6 +392,7 @@ async def generate_speech(request: TTSGenerateRequest):
             text=request.text,
             language=request.language,
             speaker_wav=request.speaker_wav,
+            reference_text=request.reference_text,
             speaker=request.speaker,
             speed=request.speed,
         )

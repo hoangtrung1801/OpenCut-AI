@@ -23,7 +23,11 @@ describe("AIClient dubbing jobs", () => {
 			target_language: "vi",
 			audio_segments: [],
 			display_segments: [],
-			voice: { mode: "clone", speaker_wav: "generated/voices/alice.wav" },
+			voice: {
+				mode: "clone",
+				speaker_wav: "generated/voices/alice.wav",
+				reference_text: "Hello from Alice.",
+			},
 		});
 
 		expect(result.status).toBe("queued");
@@ -32,6 +36,7 @@ describe("AIClient dubbing jobs", () => {
 		expect(JSON.parse(String(init?.body)).voice).toEqual({
 			mode: "clone",
 			speaker_wav: "generated/voices/alice.wav",
+			reference_text: "Hello from Alice.",
 		});
 	});
 

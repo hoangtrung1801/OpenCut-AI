@@ -16,12 +16,24 @@ export interface DubbingRunOptions {
 	targetLanguage: string;
 	voiceDesign?: string;
 	voiceClonePath?: string;
+	voiceCloneReferenceText?: string;
 	pace?: number;
 	segmentIndices?: number[];
+	sentenceOverrides?: Record<number, string>;
 }
 
 function voiceFor(options: DubbingRunOptions): DubbingVoice {
-	if (options.voiceClonePath) return { mode: "clone", speaker_wav: options.voiceClonePath };
+	if (options.voiceClonePath) {
+		const referenceText = options.voiceCloneReferenceText?.trim();
+		if (!referenceText) {
+			throw new Error("Reference text is required for a cloned voice.");
+		}
+		return {
+			mode: "clone",
+			speaker_wav: options.voiceClonePath,
+			reference_text: referenceText,
+		};
+	}
 	if (options.voiceDesign?.trim()) return { mode: "design", speaker: options.voiceDesign.trim() };
 	return { mode: "auto" };
 }
@@ -74,7 +86,7 @@ export async function ensureTargetTranslation({
 
 function buildRequest(
 	options: DubbingRunOptions,
-	transcript: ReturnType<typeof useTranscriptStore.getState>,
+	transcript: TranslationSnapshot,
 ): DubbingJobRequest {
 	const translation = transcript.translations.find((item) => item.languageCode === options.targetLanguage);
 	if (!translation) {
@@ -89,10 +101,11 @@ function buildRequest(
 		.filter((segment) => !selectedIds || selectedIds.has(segment.id))
 		.map((segment) => {
 			const source = sourceById.get(segment.id);
+			const reviewedText = options.sentenceOverrides?.[segment.id]?.trim();
 			return {
 				id: segment.id,
 				source: source?.text ?? segment.text,
-				translation: segment.text,
+				translation: reviewedText || segment.text,
 				start: segment.start,
 				end: segment.end,
 			};

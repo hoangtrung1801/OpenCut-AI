@@ -8,6 +8,7 @@ import type {
 	StorageConfig,
 	SerializedProject,
 	SerializedScene,
+	SerializedTranscript,
 } from "./types";
 import type { SavedSoundsData, SavedSound, SoundEffect } from "@/types/sounds";
 import {
@@ -71,6 +72,7 @@ function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 class StorageService {
 	private projectsAdapter: IndexedDBAdapter<SerializedProject>;
 	private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
+	private transcriptsAdapter: IndexedDBAdapter<SerializedTranscript>;
 	private config: StorageConfig;
 	private migrationsPromise: Promise<void> | null = null;
 
@@ -79,6 +81,7 @@ class StorageService {
 			projectsDb: "video-editor-projects",
 			mediaDb: "video-editor-media",
 			savedSoundsDb: "video-editor-saved-sounds",
+			transcriptsDb: "video-editor-transcripts",
 			version: 1,
 		};
 
@@ -91,6 +94,11 @@ class StorageService {
 		this.savedSoundsAdapter = new IndexedDBAdapter<SavedSoundsData>(
 			this.config.savedSoundsDb,
 			"saved-sounds",
+			this.config.version,
+		);
+		this.transcriptsAdapter = new IndexedDBAdapter<SerializedTranscript>(
+			this.config.transcriptsDb,
+			"transcripts",
 			this.config.version,
 		);
 	}
@@ -256,7 +264,28 @@ class StorageService {
 	}
 
 	async deleteProject({ id }: { id: string }): Promise<void> {
-		await this.projectsAdapter.remove(id);
+		await Promise.all([
+			this.projectsAdapter.remove(id),
+			this.transcriptsAdapter.remove(id),
+		]);
+	}
+
+	async loadTranscript({
+		projectId,
+	}: {
+		projectId: string;
+	}): Promise<SerializedTranscript | null> {
+		return this.transcriptsAdapter.get(projectId);
+	}
+
+	async saveTranscript({
+		projectId,
+		transcript,
+	}: {
+		projectId: string;
+		transcript: SerializedTranscript;
+	}): Promise<void> {
+		await this.transcriptsAdapter.set(projectId, transcript);
 	}
 
 	async saveMediaAsset({
@@ -437,7 +466,10 @@ class StorageService {
 	}
 
 	async clearAllData(): Promise<void> {
-		await this.projectsAdapter.clear();
+		await Promise.all([
+			this.projectsAdapter.clear(),
+			this.transcriptsAdapter.clear(),
+		]);
 		// project-specific media and timelines cleaned up when projects are deleted
 	}
 

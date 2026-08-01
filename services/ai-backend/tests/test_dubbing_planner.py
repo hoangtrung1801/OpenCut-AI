@@ -67,7 +67,7 @@ def limits(**overrides: object) -> DubbingLimits:
 
 
 class DubbingPlannerTest(unittest.TestCase):
-    def test_keeps_every_display_caption_as_a_distinct_clip(self):
+    def test_groups_display_captions_into_one_tts_clip_per_parent_sentence(self):
         request = make_request(
             parents=[parent(1, 0.0, 2.0)],
             displays=[
@@ -76,10 +76,10 @@ class DubbingPlannerTest(unittest.TestCase):
             ],
         )
         plan = build_dubbing_plan(request, limits())
-        self.assertEqual([clip.id for clip in plan.clips], [10, 11])
+        self.assertEqual([clip.id for clip in plan.clips], [1])
         self.assertEqual(
             [clip.tts_text for clip in plan.clips],
-            ["First.", "Second."],
+            ["Translation 1."],
         )
 
     def test_ends_chunks_at_large_gaps_and_five_parents(self):
@@ -107,7 +107,13 @@ class DubbingPlannerTest(unittest.TestCase):
 
     def test_removes_parenthetical_annotations_only_from_tts_text(self):
         request = make_request(
-            parents=[parent(1, 0.0, 1.0)],
+            parents=[DubbingParentSegment(
+                id=1,
+                source="Hello (laughs)",
+                translation="Hello (laughs)",
+                start=0.0,
+                end=1.0,
+            )],
             displays=[display(10, 1, 0, "Hello (laughs)", 0.0, 1.0)],
         )
         clip = build_dubbing_plan(request, limits()).clips[0]

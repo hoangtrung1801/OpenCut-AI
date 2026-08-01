@@ -51,6 +51,7 @@ class CloneVoice(BaseModel):
 
     mode: Literal["clone"]
     speaker_wav: str = Field(..., min_length=1, max_length=500)
+    reference_text: str = Field(..., min_length=1, max_length=5_000)
 
     @field_validator("speaker_wav")
     @classmethod
@@ -64,6 +65,14 @@ class CloneVoice(BaseModel):
         ):
             raise ValueError("clone path must be a saved local voice")
         return path.as_posix()
+
+    @field_validator("reference_text")
+    @classmethod
+    def validate_reference_text(cls, value: str) -> str:
+        text = value.strip()
+        if not text:
+            raise ValueError("reference text cannot be empty")
+        return text
 
 
 class DesignVoice(BaseModel):
