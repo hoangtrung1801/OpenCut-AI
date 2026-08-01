@@ -181,6 +181,12 @@ export interface TextWordTiming {
 export interface TextElement extends BaseTimelineElement {
 	type: "text";
 	content: string;
+	/** Links generated subtitles to their persisted transcript text. */
+	transcriptSource?: {
+		languageCode: string;
+		segmentId: number;
+		displaySegmentId?: number;
+	};
 	fontSize: number;
 	fontFamily: string;
 	color: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/utils/ui";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,8 +44,28 @@ import {
 } from "@/lib/podcast/subtitle-presets";
 import { getTranslationDisplaySegments } from "@/lib/transcription/translation-control";
 import { toast } from "sonner";
+import type { TextElement } from "@/types/timeline";
 
 type ActionStatus = "idle" | "running" | "done";
+
+function transcriptTextForSubtitle(
+	state: ReturnType<typeof useTranscriptStore.getState>,
+	source: NonNullable<TextElement["transcriptSource"]>,
+): string | null {
+	if (source.languageCode === "original") {
+		return state.segments.find((segment) => segment.id === source.segmentId)?.text ?? null;
+	}
+	const translation = state.translations.find(
+		(item) => item.languageCode === source.languageCode,
+	);
+	if (!translation) return null;
+	if (source.displaySegmentId !== undefined) {
+		return translation.displaySegments?.find(
+			(segment) => segment.id === source.displaySegmentId,
+		)?.translation ?? null;
+	}
+	return translation.segments.find((segment) => segment.id === source.segmentId)?.text ?? null;
+}
 
 const FILLER_WORDS = new Set([
 	"um",
@@ -89,6 +109,51 @@ export function QuickActionsBar({ className }: { className?: string }) {
 	const [popoverSubCount, setPopoverSubCount] = useState(0);
 	const [findClipsStatus, setFindClipsStatus] = useState<ActionStatus>("idle");
 	const [smartCutStatus, setSmartCutStatus] = useState<ActionStatus>("idle");
+
+	useEffect(() => {
+		const updates = editor.timeline
+			.getTracks()
+			.flatMap((track) =>
+				track.type === "text"
+					? track.elements.flatMap((element) => {
+							if (!element.transcriptSource) return [];
+							const text = transcriptTextForSubtitle(
+								useTranscriptStore.getState(),
+								element.transcriptSource,
+							);
+							return text !== null && text !== element.content
+								? [{ trackId: track.id, elementId: element.id, updates: { content: text } }]
+								: [];
+						})
+					: [],
+			);
+		if (updates.length > 0) editor.timeline.updateElements({ updates });
+	}, [editor, segments, translations]);
+
+	useEffect(
+		() =>
+			editor.timeline.subscribe(() => {
+				for (const track of editor.timeline.getTracks()) {
+					if (track.type !== "text") continue;
+					for (const element of track.elements) {
+						if (!element.transcriptSource) continue;
+						const state = useTranscriptStore.getState();
+						const expected = transcriptTextForSubtitle(state, element.transcriptSource);
+						if (expected === null || expected === element.content) continue;
+						if (element.transcriptSource.languageCode === "original") {
+							state.updateSegment(element.transcriptSource.segmentId, { text: element.content });
+						} else {
+							state.updateTranslationSegment(
+								element.transcriptSource.languageCode,
+								element.transcriptSource.displaySegmentId ?? element.transcriptSource.segmentId,
+								element.content,
+							);
+						}
+					}
+				}
+			}),
+		[editor],
+	);
 
 	// Derive subtitle state from actual timeline tracks
 	const subtitleTrackId = useMemo(() => {
@@ -223,12 +288,16 @@ export function QuickActionsBar({ className }: { className?: string }) {
 				text: segment.text,
 				start: segment.start,
 				end: segment.end,
+				segmentId: segment.id,
+				displaySegmentId: undefined,
 			}))
 			: translation
 				? getTranslationDisplaySegments(translation).map((segment) => ({
 					text: segment.translation,
 					start: segment.start,
 					end: segment.end,
+					segmentId: segment.parent_id,
+					displaySegmentId: segment.id,
 				}))
 				: [];
 		if (currentSegments.length === 0) return;
@@ -243,8 +312,15 @@ export function QuickActionsBar({ className }: { className?: string }) {
 				placement: { mode: "explicit", trackId: trackId },
 				element: {
 					...DEFAULT_TEXT_ELEMENT,
-					name: `Subtitle ${i + 1}`,
-					content: seg.text,
+				name: `Subtitle ${i + 1}`,
+				content: seg.text,
+				transcriptSource: {
+					languageCode,
+					segmentId: seg.segmentId,
+					...(seg.displaySegmentId === undefined
+						? {}
+						: { displaySegmentId: seg.displaySegmentId }),
+				},
 					duration: seg.end - seg.start,
 					startTime: seg.start,
 					fontSize: 4,
